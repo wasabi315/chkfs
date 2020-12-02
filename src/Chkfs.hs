@@ -100,4 +100,7 @@ testsSb Image{ imgSb = SuperBlock{..}, .. } =
 
         , testCase "sbSize should be imgSize/_BSIZE" $
             sbSize @?= (imgSize `div` _BSIZE)
+
+        , testCase "sbLogStart should be 2" $
+            sbLogstart @?= 2
         ]
