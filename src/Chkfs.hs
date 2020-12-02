@@ -1,3 +1,5 @@
+{-# LANGUAGE LambdaCase #-}
+
 module Chkfs
     ( doCheck
     , SuperBlock (..)
@@ -10,14 +12,35 @@ module Chkfs
 import           Data.Binary.Get
 import qualified Data.ByteString.Lazy as BL
 import           Data.Word
+import           System.Exit
+import           Test.Tasty
+import           Test.Tasty.HUnit
+import           Test.Tasty.Runners
 
 --------------------------------------------------------------------------------
 
 doCheck :: BL.ByteString -> IO ()
 doCheck img = do
     let sb = runGet (skip 1024 >> getSuperBlock) img
-    print sb
-    putStrLn $ "magic sb == _FSMAGIC -> " ++ show (magic sb == _FSMAGIC)
+    runCheck (testsSB sb)
+
+
+runCheck :: TestTree -> IO ()
+runCheck testTree = do
+    installSignalHandlers
+    sequence (tryIngredients defaultIngredients mempty testTree) >>= \case
+        Just True -> do
+            exitSuccess
+
+        _ -> do
+            exitFailure
+
+
+testsSB :: SuperBlock -> TestTree
+testsSB sb = testGroup "super block"
+    [ testCase "magic must be _FSMAGIC" $
+        magic sb @?= _FSMAGIC
+    ]
 
 --------------------------------------------------------------------------------
 
@@ -37,6 +60,7 @@ data SuperBlock = SuperBlock
     , bmapstart  :: {-# UNPACK #-} !Word32
     }
     deriving (Show)
+
 
 getSuperBlock :: Get SuperBlock
 getSuperBlock =
