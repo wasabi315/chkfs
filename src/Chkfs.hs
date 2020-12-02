@@ -38,8 +38,8 @@ runCheck testTree = do
 
 testsSB :: SuperBlock -> TestTree
 testsSB sb = testGroup "super block"
-    [ testCase "magic must be _FSMAGIC" $
-        magic sb @?= _FSMAGIC
+    [ testCase "sbMagic must be _FSMAGIC" $
+        sbMagic sb @?= _FSMAGIC
     ]
 
 --------------------------------------------------------------------------------
@@ -50,14 +50,14 @@ _FSMAGIC = 0x10203040
 --------------------------------------------------------------------------------
 
 data SuperBlock = SuperBlock
-    { magic      :: {-# UNPACK #-} !Word32
-    , size       :: {-# UNPACK #-} !Word32
-    , nblocks    :: {-# UNPACK #-} !Word32
-    , ninodes    :: {-# UNPACK #-} !Word32
-    , nlog       :: {-# UNPACK #-} !Word32
-    , logstart   :: {-# UNPACK #-} !Word32
-    , inodestart :: {-# UNPACK #-} !Word32
-    , bmapstart  :: {-# UNPACK #-} !Word32
+    { sbMagic      :: {-# UNPACK #-} !Word32
+    , sbSize       :: {-# UNPACK #-} !Word32
+    , sbNblocks    :: {-# UNPACK #-} !Word32
+    , sbNinodes    :: {-# UNPACK #-} !Word32
+    , sbNlog       :: {-# UNPACK #-} !Word32
+    , sbLogstart   :: {-# UNPACK #-} !Word32
+    , sbInodestart :: {-# UNPACK #-} !Word32
+    , sbBmapstart  :: {-# UNPACK #-} !Word32
     }
     deriving (Show)
 
