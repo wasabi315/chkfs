@@ -69,6 +69,7 @@ getSuperBlock =
         <*> getWord32host
         <*> getWord32host
         <*> getWord32host
+        <*  skip (fromIntegral $ _BSIZE - 32*8)
 
 --------------------------------------------------------------------------------
 
