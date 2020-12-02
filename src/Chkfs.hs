@@ -15,40 +15,13 @@ import           Test.Tasty.Runners
 
 --------------------------------------------------------------------------------
 
-parseImage :: String -> Word32 -> BL.ByteString -> Image
-parseImage imgName imgSize = runGet (getImage imgName imgSize)
-
-
-runCheck :: TestTree -> IO ()
-runCheck testTree = do
-    installSignalHandlers
-
-    sequence (tryIngredients defaultIngredients mempty testTree) >>= \case
-        Just True -> do
-            exitSuccess
-
-        _ -> do
-            exitFailure
-
-
-tests :: Image -> TestTree
-tests img@Image{..} =
-    testGroup imgName
-        [ testsSb img
-        ]
-
-
-testsSb :: Image -> TestTree
-testsSb Image{ imgSb = SuperBlock{..} } =
-    testGroup "super block"
-        [ testCase "sbMagic must be _FSMAGIC" $
-            sbMagic @?= _FSMAGIC
-        ]
+_FSMAGIC :: Word32
+_FSMAGIC = 0x10203040
 
 --------------------------------------------------------------------------------
 
-_FSMAGIC :: Word32
-_FSMAGIC = 0x10203040
+parseImage :: String -> Word32 -> BL.ByteString -> Image
+parseImage imgName imgSize = runGet (getImage imgName imgSize)
 
 --------------------------------------------------------------------------------
 
@@ -92,3 +65,32 @@ getSuperBlock =
         <*> getWord32host
         <*> getWord32host
         <*> getWord32host
+
+--------------------------------------------------------------------------------
+
+runCheck :: TestTree -> IO ()
+runCheck testTree = do
+    installSignalHandlers
+
+    sequence (tryIngredients defaultIngredients mempty testTree) >>= \case
+        Just True -> do
+            exitSuccess
+
+        _ -> do
+            exitFailure
+
+--------------------------------------------------------------------------------
+
+tests :: Image -> TestTree
+tests img@Image{..} =
+    testGroup imgName
+        [ testsSb img
+        ]
+
+
+testsSb :: Image -> TestTree
+testsSb Image{ imgSb = SuperBlock{..} } =
+    testGroup "super block"
+        [ testCase "sbMagic must be _FSMAGIC" $
+            sbMagic @?= _FSMAGIC
+        ]
