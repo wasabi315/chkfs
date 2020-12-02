@@ -1,11 +1,7 @@
-{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE LambdaCase      #-}
+{-# LANGUAGE RecordWildCards #-}
 
-module Chkfs
-    ( doCheck
-    , SuperBlock (..)
-    , getSuperBlock
-    , _FSMAGIC
-    ) where
+module Chkfs where
 
 --------------------------------------------------------------------------------
 
@@ -19,15 +15,14 @@ import           Test.Tasty.Runners
 
 --------------------------------------------------------------------------------
 
-doCheck :: BL.ByteString -> IO ()
-doCheck img = do
-    let sb = runGet (skip 1024 >> getSuperBlock) img
-    runCheck (testsSB sb)
+parseImage :: String -> Word32 -> BL.ByteString -> Image
+parseImage imgName imgSize = runGet (getImage imgName imgSize)
 
 
 runCheck :: TestTree -> IO ()
 runCheck testTree = do
     installSignalHandlers
+
     sequence (tryIngredients defaultIngredients mempty testTree) >>= \case
         Just True -> do
             exitSuccess
@@ -36,16 +31,40 @@ runCheck testTree = do
             exitFailure
 
 
-testsSB :: SuperBlock -> TestTree
-testsSB sb = testGroup "super block"
-    [ testCase "sbMagic must be _FSMAGIC" $
-        sbMagic sb @?= _FSMAGIC
-    ]
+tests :: Image -> TestTree
+tests img@Image{..} =
+    testGroup imgName
+        [ testsSb img
+        ]
+
+
+testsSb :: Image -> TestTree
+testsSb Image{ imgSb = SuperBlock{..} } =
+    testGroup "super block"
+        [ testCase "sbMagic must be _FSMAGIC" $
+            sbMagic @?= _FSMAGIC
+        ]
 
 --------------------------------------------------------------------------------
 
 _FSMAGIC :: Word32
 _FSMAGIC = 0x10203040
+
+--------------------------------------------------------------------------------
+
+data Image = Image
+    { imgName :: !String
+    , imgSize :: {-# UNPACK #-} !Word32
+    , imgSb   :: !SuperBlock
+    }
+    deriving (Show)
+
+
+getImage :: String -> Word32 -> Get Image
+getImage imgName imgSize = do
+    skip 1024 -- skip boot block
+    imgSb <- getSuperBlock
+    pure Image{..}
 
 --------------------------------------------------------------------------------
 

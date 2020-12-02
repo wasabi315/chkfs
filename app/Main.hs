@@ -20,5 +20,10 @@ main = do
     when (null args) do
         hPutStr stderr $ "Usage: " ++ prog ++ " FILE"
 
-    img <- BL.readFile (head args)
-    doCheck img
+    let imgName = head args
+    img <- withBinaryFile imgName ReadMode $ \h -> do
+        imgSize <- hFileSize h
+        imgData <- BL.hGetContents h
+        pure $! parseImage imgName (fromInteger imgSize) imgData
+
+    runCheck (tests img)
