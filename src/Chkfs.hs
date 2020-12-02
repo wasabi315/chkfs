@@ -39,7 +39,7 @@ data Image = Image
 
 getImage :: String -> Word32 -> Get Image
 getImage imgName imgSize = do
-    skip 1024 -- skip boot block
+    skip (fromIntegral _BSIZE) -- skip boot block
     imgSb <- getSuperBlock
     pure Image{..}
 
