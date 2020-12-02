@@ -15,6 +15,10 @@ import           Test.Tasty.Runners
 
 --------------------------------------------------------------------------------
 
+_BSIZE :: Word32
+_BSIZE = 1024
+
+
 _FSMAGIC :: Word32
 _FSMAGIC = 0x10203040
 
@@ -89,8 +93,11 @@ tests img@Image{..} =
 
 
 testsSb :: Image -> TestTree
-testsSb Image{ imgSb = SuperBlock{..} } =
+testsSb Image{ imgSb = SuperBlock{..}, .. } =
     testGroup "super block"
-        [ testCase "sbMagic must be _FSMAGIC" $
+        [ testCase "sbMagic should be _FSMAGIC" $
             sbMagic @?= _FSMAGIC
+
+        , testCase "sbSize should be imgSize/_BSIZE" $
+            sbSize @?= (imgSize `div` _BSIZE)
         ]
