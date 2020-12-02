@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 01962d85789b80f9b9d81aa5c551ec96d05306bc5ae68799fecf77fb37137bf7
+-- hash: 24e24c8bac32c6fed14be5232535494cb76bdcb9a261cd3c3de0428da9e56da7
 
 name:           chkfs
 version:        0.1.0.0
@@ -27,4 +27,6 @@ executable chkfs
       app
   build-depends:
       base >=4.7 && <5
+    , binary
+    , bytestring
   default-language: Haskell2010
