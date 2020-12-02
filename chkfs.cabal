@@ -1,0 +1,30 @@
+cabal-version: 1.12
+
+-- This file has been generated from package.yaml by hpack version 0.33.0.
+--
+-- see: https://github.com/sol/hpack
+--
+-- hash: 01962d85789b80f9b9d81aa5c551ec96d05306bc5ae68799fecf77fb37137bf7
+
+name:           chkfs
+version:        0.1.0.0
+category:       Web
+homepage:       https://github.com/githubuser/chkfs#readme
+author:         Author name here
+maintainer:     example@example.com
+copyright:      2020 Author name here
+license:        BSD3
+license-file:   LICENSE
+build-type:     Simple
+extra-source-files:
+    README.md
+
+executable chkfs
+  main-is: Main.hs
+  other-modules:
+      Paths_chkfs
+  hs-source-dirs:
+      app
+  build-depends:
+      base >=4.7 && <5
+  default-language: Haskell2010
