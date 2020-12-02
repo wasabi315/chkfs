@@ -26,4 +26,4 @@ main = do
         imgData <- BL.hGetContents h
         pure $! parseImage imgName (fromInteger imgSize) imgData
 
-    runCheck (tests img)
+    runTest (tests img)

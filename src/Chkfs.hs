@@ -72,8 +72,8 @@ getSuperBlock =
 
 --------------------------------------------------------------------------------
 
-runCheck :: TestTree -> IO ()
-runCheck testTree = do
+runTest :: TestTree -> IO ()
+runTest testTree = do
     installSignalHandlers
 
     sequence (tryIngredients defaultIngredients mempty testTree) >>= \case
