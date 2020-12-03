@@ -1,3 +1,4 @@
+{-# LANGUAGE BlockArguments  #-}
 {-# LANGUAGE LambdaCase      #-}
 {-# LANGUAGE RecordWildCards #-}
 
@@ -103,8 +104,12 @@ testsSb Image{ imgSb = SuperBlock{..}, .. } =
         [ testCase "sbMagic should be _FSMAGIC" $
             sbMagic @?= _FSMAGIC
 
-        , testCase "sbSize should be imgSize/_BSIZE" $
+        , testCase "sbSize is correct" do
             sbSize @?= (imgSize `div` _BSIZE)
+            sbSize @?= (nb + ns + nl + ni + nm + nd)
+
+        , testCase "sbNblock should be foo" $
+            sbNblocks @?= nd
 
         , testCase "sbLogstart should be 2" $
             sbLogstart @?= 2
@@ -116,4 +121,9 @@ testsSb Image{ imgSb = SuperBlock{..}, .. } =
             sbBmapstart @?= (sbInodestart + ni)
         ]
     where
+        nb = 1
+        ns = 1
+        nl = sbNlog
         ni = sbNinodes `div` _IPB + 1
+        nm = sbSize `div` (_BSIZE * 8) + 1
+        nd = sbSize - (nb + ns + nl + ni + nm)
