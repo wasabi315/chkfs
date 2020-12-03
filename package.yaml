@@ -17,6 +17,7 @@ dependencies:
   - bytestring
   - tasty
   - tasty-hunit
+  - vector
 
 library:
   source-dirs: src
