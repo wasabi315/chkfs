@@ -21,7 +21,7 @@ main = do
         hPutStr stderr $ "Usage: " ++ prog ++ " FILE"
 
     let imgName = head args
-    img <- withBinaryFile imgName ReadMode $ \h -> do
+    img <- withBinaryFile imgName ReadMode \h -> do
         imgSize <- hFileSize h
         imgData <- BL.hGetContents h
         pure $! parseImage imgName (fromInteger imgSize) imgData
