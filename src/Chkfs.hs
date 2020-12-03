@@ -22,6 +22,10 @@ _BSIZE = 1024
 _FSMAGIC :: Word32
 _FSMAGIC = 0x10203040
 
+
+_IPB :: Word32
+_IPB = 16
+
 --------------------------------------------------------------------------------
 
 parseImage :: String -> Word32 -> BL.ByteString -> Image
@@ -102,6 +106,14 @@ testsSb Image{ imgSb = SuperBlock{..}, .. } =
         , testCase "sbSize should be imgSize/_BSIZE" $
             sbSize @?= (imgSize `div` _BSIZE)
 
-        , testCase "sbLogStart should be 2" $
+        , testCase "sbLogstart should be 2" $
             sbLogstart @?= 2
+
+        , testCase "sbInodestart should be sbLogstart + sbNlog" $
+            sbInodestart @?= (sbLogstart + sbNlog)
+
+        , testCase "sbBmapstart should be sbInodestart + ni" $
+            sbBmapstart @?= (sbInodestart + ni)
         ]
+    where
+        ni = sbNinodes `div` _IPB + 1
