@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns    #-}
 {-# LANGUAGE BlockArguments  #-}
 {-# LANGUAGE LambdaCase      #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -7,11 +8,14 @@ module Chkfs where
 --------------------------------------------------------------------------------
 
 import           Data.Binary.Get
+import           Data.Bits
 import qualified Data.ByteString.Lazy as BL
+import           Data.Char
 import           Data.Int
 import qualified Data.Vector          as V
 import qualified Data.Vector.Unboxed  as VU
 import           Data.Word
+import           Numeric
 import           System.Exit
 import           Test.Tasty
 import           Test.Tasty.HUnit
@@ -49,6 +53,7 @@ data Image = Image
     , imgSize    :: {-# UNPACK #-} !Word32
     , imgSb      :: !SuperBlock
     , imgDinodes :: !(V.Vector Dinode)
+    , imgBitmap  :: !Bitmap
     }
     deriving (Show)
 
@@ -63,11 +68,16 @@ getImage imgName imgSize = do
     align _BSIZE
 
     -- log blocks
-    skip (fromIntegral $ _BSIZE*sbNlog)
+    skip (fromIntegral $ _BSIZE * sbNlog)
 
     -- inode blocks
     imgDinodes <- getInodeBlocks sbNinodes
     skip 1 -- for when ninodes is divisible by IPB
+    align _BSIZE
+
+    -- bitmap blocks
+    imgBitmap <- getBitmapBlocks sbSize
+    skip 1 -- for when size is divisible by BSIZE*8
     align _BSIZE
 
     pure Image{..}
@@ -150,6 +160,32 @@ getDinode dinInum = do
             2 -> File
             3 -> Dev
             _ -> Unknown
+
+--------------------------------------------------------------------------------
+
+getBitmapBlocks :: Word32 -> Get Bitmap
+getBitmapBlocks size = go 0 0
+    where
+        nbytes :: Int
+        nbytes = fromIntegral $ (size + 8 - 1) `div` 8 -- ceil(size / 8)
+
+        go :: Int -> Integer -> Get Bitmap
+        go !n !bm
+            | n >= nbytes = pure (Bitmap bm)
+            | otherwise = do
+                w <- getWord8
+                go (n + 1) (bm .|. shiftL (fromIntegral w) (n * 8))
+
+
+newtype Bitmap = Bitmap Integer
+
+
+instance Show Bitmap where
+    show (Bitmap bm) = showIntAtBase 2 intToDigit bm ""
+
+
+isBlockUsed :: Bitmap -> Word32 -> Bool
+isBlockUsed (Bitmap bm) b = testBit bm (fromIntegral b)
 
 --------------------------------------------------------------------------------
 
