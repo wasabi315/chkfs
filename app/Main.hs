@@ -28,7 +28,7 @@ main = do
         pure $! parseImage imgName (fromInteger imgSize) imgData
 
     case imgOrErr of
-        Right img ->
+        Right img -> do
             runTest (tests img)
 
         Left err -> do
