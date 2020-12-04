@@ -104,12 +104,15 @@ testsSb Image{ imgSb = SuperBlock{..}, .. } =
         [ testCase "sbMagic should be _FSMAGIC" $
             sbMagic @?= _FSMAGIC
 
-        , testCase "sbSize is correct" do
+        , testCase "sbSize should be consistent" do
             sbSize @?= (imgSize `div` _BSIZE)
             sbSize @?= (nb + ns + nl + ni + nm + nd)
 
-        , testCase "sbNblock should be foo" $
+        , testCase "sbNblock should be consistent" $
             sbNblocks @?= nd
+
+        , testCase "sbNlog should be consistent" $
+            sbNlog @?= (sbInodestart - sbLogstart)
 
         , testCase "sbLogstart should be 2" $
             sbLogstart @?= 2
