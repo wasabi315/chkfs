@@ -42,17 +42,30 @@ parseImage imgName imgSize = runGet (getImage imgName imgSize)
 --------------------------------------------------------------------------------
 
 data Image = Image
-    { imgName :: !String
-    , imgSize :: {-# UNPACK #-} !Word32
-    , imgSb   :: !SuperBlock
+    { imgName    :: !String
+    , imgSize    :: {-# UNPACK #-} !Word32
+    , imgSb      :: !SuperBlock
+    , imgDinodes :: !(V.Vector Dinode)
     }
     deriving (Show)
 
 
 getImage :: String -> Word32 -> Get Image
 getImage imgName imgSize = do
-    skip (fromIntegral _BSIZE) -- skip boot block
-    imgSb <- getSuperBlock
+    -- boot block
+    skip (fromIntegral _BSIZE)
+
+    -- super block
+    imgSb@SuperBlock{..} <- getSuperBlock
+
+    -- log blocks
+    skip (fromIntegral $ _BSIZE*sbNlog)
+
+    -- inode blocks
+    imgDinodes <-
+        V.generateM (fromIntegral sbNinodes) (getDinode . fromIntegral)
+    skip (fromIntegral $ _BSIZE*(sbBmapstart - sbInodestart) - 64*sbNinodes)
+
     pure Image{..}
 
 --------------------------------------------------------------------------------
@@ -85,21 +98,6 @@ getSuperBlock =
 
 --------------------------------------------------------------------------------
 
-data InodeBlocks = InodeBlocks
-    { inbNblocks :: {-# UNPACK #-} !Word32
-    , inbNInodes :: {-# UNPACK #-} !Word32
-    , inbDinodes :: !(V.Vector Dinode)
-    }
-
-
-getInodeBlocks :: Word32 -> Word32 -> Get InodeBlocks
-getInodeBlocks inbNblocks inbNInodes = do
-    inbDinodes <-
-        V.generateM (fromIntegral inbNInodes) (getDinode . fromIntegral)
-    skip (fromIntegral $ _BSIZE*inbNblocks - 64*inbNInodes)
-    pure InodeBlocks{..}
-
-
 data FileType
     = Unknown
     | Dir
@@ -110,13 +108,14 @@ data FileType
 
 data Dinode = Dinode
     { dinInum  :: {-# UNPACK #-} !Word32
-    , dinType  :: {-# UNPACK #-} !FileType
+    , dinType  :: !FileType
     , dinMajor :: {-# UNPACK #-} !Int16
     , dinMinor :: {-# UNPACK #-} !Int16
     , dinNlink :: {-# UNPACK #-} !Int16
     , dinSize  :: {-# UNPACK #-} !Word32
     , dinAddrs :: !(VU.Vector Word32)
     }
+    deriving (Show)
 
 
 getDinode :: Word32 -> Get Dinode
