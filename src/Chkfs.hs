@@ -65,9 +65,7 @@ getImage imgName imgSize = do
     skip (fromIntegral $ _BSIZE*sbNlog)
 
     -- inode blocks
-    imgDinodes <-
-        V.generateM (fromIntegral sbNinodes) (getDinode . fromIntegral)
-    skip (fromIntegral $ (sbNinodes`div`_IPB + 1)*_BSIZE - sbNinodes*64)
+    imgDinodes <- getInodeBlocks sbNinodes
 
     pure Image{..}
 
@@ -100,6 +98,14 @@ getSuperBlock =
         <*  skip (fromIntegral $ _BSIZE - 32*8)
 
 --------------------------------------------------------------------------------
+
+getInodeBlocks :: Word32 -> Get (V.Vector Dinode)
+getInodeBlocks ninodes = do
+    imgDinodes <-
+        V.generateM (fromIntegral ninodes) (getDinode . fromIntegral)
+    skip (fromIntegral $ (ninodes`div`_IPB + 1)*_BSIZE - ninodes*64)
+    pure imgDinodes
+
 
 data FileType
     = Unknown
