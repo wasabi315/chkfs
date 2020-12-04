@@ -67,6 +67,7 @@ getImage imgName imgSize = do
     -- inode blocks
     imgDinodes <-
         V.generateM (fromIntegral sbNinodes) (getDinode . fromIntegral)
+    skip (fromIntegral $ (sbNinodes`div`_IPB + 1)*_BSIZE - sbNinodes*64)
 
     pure Image{..}
 

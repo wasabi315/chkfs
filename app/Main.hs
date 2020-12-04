@@ -1,4 +1,5 @@
-{-# LANGUAGE BlockArguments #-}
+{-# LANGUAGE BlockArguments  #-}
+{-# LANGUAGE RecordWildCards #-}
 
 module Main where
 
