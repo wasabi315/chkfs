@@ -94,7 +94,9 @@ data InodeBlocks = InodeBlocks
 
 getInodeBlocks :: Word32 -> Word32 -> Get InodeBlocks
 getInodeBlocks inbNblocks inbNInodes = do
-    inbDinodes <- V.replicateM (fromIntegral inbNInodes) getDinode
+    inbDinodes <-
+        V.generateM (fromIntegral inbNInodes) (getDinode . fromIntegral)
+    skip (fromIntegral $ _BSIZE*inbNblocks - 64*inbNInodes)
     pure InodeBlocks{..}
 
 
@@ -107,7 +109,8 @@ data FileType
 
 
 data Dinode = Dinode
-    { dinType  :: {-# UNPACK #-} !FileType
+    { dinInum  :: {-# UNPACK #-} !Word32
+    , dinType  :: {-# UNPACK #-} !FileType
     , dinMajor :: {-# UNPACK #-} !Int16
     , dinMinor :: {-# UNPACK #-} !Int16
     , dinNlink :: {-# UNPACK #-} !Int16
@@ -116,8 +119,8 @@ data Dinode = Dinode
     }
 
 
-getDinode :: Get Dinode
-getDinode = do
+getDinode :: Word32 -> Get Dinode
+getDinode dinInum = do
     dinMajor <- getInt16host
     dinType <- toFileType <$> getInt16host
     dinNlink <- getInt16host
