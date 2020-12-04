@@ -60,14 +60,24 @@ getImage imgName imgSize = do
 
     -- super block
     imgSb@SuperBlock{..} <- getSuperBlock
+    align _BSIZE
 
     -- log blocks
     skip (fromIntegral $ _BSIZE*sbNlog)
 
     -- inode blocks
     imgDinodes <- getInodeBlocks sbNinodes
+    skip 1 -- for when ninodes is divisible by IPB
+    align _BSIZE
 
     pure Image{..}
+
+
+align :: Integral a => a -> Get ()
+align n = do
+    m <- bytesRead
+    let n' = fromIntegral n
+    skip $ fromIntegral (n' - m `mod` n')
 
 --------------------------------------------------------------------------------
 
@@ -95,16 +105,12 @@ getSuperBlock =
         <*> getWord32host
         <*> getWord32host
         <*> getWord32host
-        <*  skip (fromIntegral $ _BSIZE - 4*8)
 
 --------------------------------------------------------------------------------
 
 getInodeBlocks :: Word32 -> Get (V.Vector Dinode)
-getInodeBlocks ninodes = do
-    imgDinodes <-
-        V.generateM (fromIntegral ninodes) (getDinode . fromIntegral)
-    skip (fromIntegral $ (ninodes`div`_IPB + 1)*_BSIZE - ninodes*64)
-    pure imgDinodes
+getInodeBlocks ninodes =
+    V.generateM (fromIntegral ninodes) (getDinode . fromIntegral)
 
 
 data FileType
