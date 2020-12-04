@@ -36,8 +36,11 @@ _NDIRECT = 12
 
 --------------------------------------------------------------------------------
 
-parseImage :: String -> Word32 -> BL.ByteString -> Image
-parseImage imgName imgSize = runGet (getImage imgName imgSize)
+parseImage :: String -> Word32 -> BL.ByteString -> Either String Image
+parseImage imgName imgSize imgData =
+    case runGetOrFail (getImage imgName imgSize) imgData of
+        Right (_, _, img) -> Right img
+        Left (_, _, err)  -> Left err
 
 --------------------------------------------------------------------------------
 

@@ -7,6 +7,7 @@ module Main where
 import           Control.Monad
 import qualified Data.ByteString.Lazy as BL
 import           System.Environment
+import           System.Exit
 import           System.IO
 
 import           Chkfs
@@ -21,9 +22,15 @@ main = do
         hPutStr stderr $ "Usage: " ++ prog ++ " FILE"
 
     let imgName = head args
-    img <- withBinaryFile imgName ReadMode \h -> do
+    imgOrErr <- withBinaryFile imgName ReadMode \h -> do
         imgSize <- hFileSize h
         imgData <- BL.hGetContents h
         pure $! parseImage imgName (fromInteger imgSize) imgData
 
-    runTest (tests img)
+    case imgOrErr of
+        Right img ->
+            runTest (tests img)
+
+        Left err -> do
+            hPutStrLn stderr err
+            exitFailure
