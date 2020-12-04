@@ -129,13 +129,13 @@ data Dinode = Dinode
 
 getDinode :: Word32 -> Get Dinode
 getDinode dinInum = do
-    dinMajor <- getInt16host
-    dinType <- toFileType <$> getInt16host
-    dinNlink <- getInt16host
-    dinMinor <- getInt16host
-    dinSize <- getWord32host
-    dinAddrs <- VU.replicateM (fromIntegral $ _NDIRECT + 1) getWord32host
-    pure Dinode{..}
+    Dinode dinInum
+        <$> fmap toFileType getInt16host
+        <*> getInt16host
+        <*> getInt16host
+        <*> getInt16host
+        <*> getWord32host
+        <*> VU.replicateM (fromIntegral $ _NDIRECT + 1) getWord32host
 
     where
         toFileType :: Int16 -> FileType
