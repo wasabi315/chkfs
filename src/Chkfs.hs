@@ -65,26 +65,26 @@ getImage imgName imgSize = do
 
     -- super block
     imgSb@SuperBlock{..} <- getSuperBlock
-    align _BSIZE
+    roundUp _BSIZE
 
     -- log blocks
     skip (fromIntegral $ _BSIZE * sbNlog)
 
     -- inode blocks
-    imgDinodes <- getInodeBlocks sbNinodes
+    imgDinodes <- getDinodes sbNinodes
     skip 1 -- for when ninodes is divisible by IPB
-    align _BSIZE
+    roundUp _BSIZE
 
     -- bitmap blocks
-    imgBitmap <- getBitmapBlocks sbSize
+    imgBitmap <- getBitmap sbSize
     skip 1 -- for when size is divisible by BSIZE*8
-    align _BSIZE
+    roundUp _BSIZE
 
     pure Image{..}
 
 
-align :: Integral a => a -> Get ()
-align n = do
+roundUp :: Integral a => a -> Get ()
+roundUp n = do
     m <- bytesRead
     let n' = fromIntegral n
     skip $ fromIntegral (n' - m `mod` n')
@@ -118,8 +118,8 @@ getSuperBlock =
 
 --------------------------------------------------------------------------------
 
-getInodeBlocks :: Word32 -> Get (V.Vector Dinode)
-getInodeBlocks ninodes =
+getDinodes :: Word32 -> Get (V.Vector Dinode)
+getDinodes ninodes =
     V.generateM (fromIntegral ninodes) (getDinode . fromIntegral)
 
 
@@ -163,8 +163,15 @@ getDinode dinInum = do
 
 --------------------------------------------------------------------------------
 
-getBitmapBlocks :: Word32 -> Get Bitmap
-getBitmapBlocks size = go 0 0
+newtype Bitmap = Bitmap Integer
+
+
+instance Show Bitmap where
+    show (Bitmap bm) = showIntAtBase 2 intToDigit bm ""
+
+
+getBitmap :: Word32 -> Get Bitmap
+getBitmap size = go 0 0
     where
         nbytes :: Int
         nbytes = fromIntegral $ (size + 8 - 1) `div` 8 -- ceil(size / 8)
@@ -175,13 +182,6 @@ getBitmapBlocks size = go 0 0
             | otherwise = do
                 w <- getWord8
                 go (n + 1) (bm .|. shiftL (fromIntegral w) (n * 8))
-
-
-newtype Bitmap = Bitmap Integer
-
-
-instance Show Bitmap where
-    show (Bitmap bm) = showIntAtBase 2 intToDigit bm ""
 
 
 isBlockUsed :: Bitmap -> Word32 -> Bool
