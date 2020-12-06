@@ -134,13 +134,34 @@ testNthDinode img inum dind@Dinode{..} =
         assertBool ("inode" ++ show inum ++ ": invalid file type") $
             diType `elem` [_T_DIR, _T_FILE, _T_DEV]
 
-        when (diType == _T_DEV) $
+        when (diType == _T_DEV) do
             assertBool ("inode" ++ show inum ++ ": invalid major, minor") $
                 (diMajor /= 0) || (diMinor /= 0)
 
         VS.forM_ diAddrs \addr -> do
             assertBool ("inode" ++ show inum ++ ": invalid addr referencing unused block") =<<
                 isBlockUsed img addr
+
+        when (diType == _T_DIR) do
+            VS.forM_ (VS.init diAddrs) \addr ->
+                when (addr /= 0) do
+                    let ptr = castPtr (img `index` addr) :: Ptr Dirent
+                    for_ [0 .. fromIntegral _BSIZE `div` 16 - 1] \n -> do
+                        de <- peekElemOff ptr n
+                        unless (isNullDirent de) do
+                            print de
+
+            let addr = VS.last diAddrs
+            when (addr /= 0) do
+                let ptr = castPtr (img `index` addr) :: Ptr Word32
+                for_ [0 .. fromIntegral _BSIZE `div` 4 - 1] \i -> do
+                    addr' <- peekElemOff ptr i
+                    when (addr' /= 0) do
+                        let ptr' = castPtr (img `index` addr') :: Ptr Dirent
+                        for_ [0 .. fromIntegral _BSIZE `div` 16 - 1] \n -> do
+                            de <- peekElemOff ptr' n
+                            unless (isNullDirent de) do
+                                print de
 
 --------------------------------------------------------------------------------
 
