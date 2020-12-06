@@ -40,12 +40,6 @@ _FSMAGIC = 0x10203040
 _IPB :: Word32
 _IPB = 16
 
-
-type NDIRECT = 12
-
-
-type DIRSIZ = 14
-
 --------------------------------------------------------------------------------
 
 type Image = Ptr ()
@@ -101,9 +95,11 @@ getBitmap img Superblock{..} =
 
 --------------------------------------------------------------------------------
 
+type NDIRECT = 12
+
+
 data Dinode = Dinode
-    { diInum  :: {-# UNPACK #-} !Word32
-    , diType  :: {-# UNPACK #-} !Int16
+    { diType  :: {-# UNPACK #-} !Int16
     , diMajor :: {-# UNPACK #-} !Int16
     , diMinor :: {-# UNPACK #-} !Int16
     , diNlink :: {-# UNPACK #-} !Int16
@@ -111,6 +107,21 @@ data Dinode = Dinode
     , diAddrs :: !(VS.Vector (NDIRECT + 1) Word32)
     }
     deriving (Show, Generic, GStorable)
+
+
+isNullDinode :: Dinode -> Bool
+isNullDinode Dinode{..} =
+    and
+        [ diType == 0
+        , diMajor == 0
+        , diMinor == 0
+        , diSize == 0
+        , VS.all (== 0) diAddrs
+        ]
+
+--------------------------------------------------------------------------------
+
+type DIRSIZ = 14
 
 
 data Dirent = Dirent
