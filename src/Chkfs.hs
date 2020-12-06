@@ -91,6 +91,12 @@ isBlockUsed img bnum = do
 type NDIRECT = 12
 
 
+_T_DIR, _T_FILE, _T_DEV :: Int16
+_T_DIR  = 1
+_T_FILE = 2
+_T_DEV  = 3
+
+
 data Dinode = Dinode
     { diType  :: {-# UNPACK #-} !Int16
     , diMajor :: {-# UNPACK #-} !Int16
@@ -126,9 +132,9 @@ testNthDinode :: Image -> Word32 -> Dinode -> IO ()
 testNthDinode img inum dind@Dinode{..} =
     unless (isNullDinode dind) do
         assertBool ("inode" ++ show inum ++ ": invalid file type") $
-            diType `elem` [1 .. 3]
+            diType `elem` [_T_DIR, _T_FILE, _T_DEV]
 
-        when (diType == {- DEV -} 3) $
+        when (diType == _T_DEV) $
             assertBool ("inode" ++ show inum ++ ": invalid major, minor") $
                 (diMajor /= 0) || (diMinor /= 0)
 
