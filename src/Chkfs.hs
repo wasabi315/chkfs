@@ -109,8 +109,8 @@ runTest testTree = do
 
 --------------------------------------------------------------------------------
 
-tests :: String -> Image -> TestTree
-tests imgName img = testCaseSteps imgName \step -> do
+createTests :: String -> Int -> Image -> TestTree
+createTests imgName imgSize img = testCaseSteps imgName \step -> do
 
     step "Checking super block..."
     Superblock{..} <- peek (castPtr (img ! 1) :: Ptr Superblock)
