@@ -11,12 +11,12 @@ module Chkfs where
 
 --------------------------------------------------------------------------------
 
+import           Control.Monad
 import           Data.Bits
 import           Data.ByteString.Internal   (w2c)
 import           Data.Char
 import           Data.Foldable
 import           Data.Int
-import           Data.Traversable
 import qualified Data.Vector.Storable.Sized as VS
 import           Data.Word
 import           Foreign.Ptr
@@ -77,26 +77,6 @@ instance Show Bitmap where
     show (Bitmap bm) = showIntAtBase 2 intToDigit bm ""
 
 
-getBitmap :: Image -> IO Bitmap
-getBitmap img = do
-    Superblock{..} <- getSuperblock img
-    let
-        nBytes :: Int
-        !nBytes = fromIntegral $ (sbSize - 1) `div` 8 + 1 -- ceil(size / 8)
-
-        ptr :: Ptr Word8
-        !ptr = castPtr (img `index` sbBmapstart)
-
-        go :: Int -> Integer -> IO Bitmap
-        go !n !bm
-            | n >= nBytes = pure (Bitmap bm)
-            | otherwise = do
-                w <- peekElemOff ptr n
-                go (n + 1) (bm .|. shiftL (fromIntegral w) (n * 8))
-
-    go 0 0
-
-
 isBlockUsed :: Image -> Word32 -> IO Bool
 isBlockUsed img bnum = do
     Superblock{..} <- getSuperblock img
@@ -133,18 +113,29 @@ isNullDinode Dinode{..} =
         ]
 
 
-getDinodes :: Image -> IO [Dinode]
-getDinodes img = do
-    Superblock{..} <- getSuperblock img
-    for [0 .. fromIntegral sbNinodes - 1]
-        (getNthDinode img)
-
-
 getNthDinode :: Image -> Word32 -> IO Dinode
 getNthDinode img n = do
     Superblock{..} <- getSuperblock img
+    assertBool ("invalid inode number: " ++ show n) (n < sbNinodes)
+
     let !ptr = castPtr (img `index` sbInodestart) :: Ptr Dinode
     peekElemOff ptr (fromIntegral n)
+
+
+testNthDinode :: Image -> Word32 -> IO ()
+testNthDinode img n = do
+    dind@Dinode{..} <- getNthDinode img n
+
+    unless (isNullDinode dind) do
+        assertBool ("inode" ++ show n ++ ": invalid file type") $
+            diType `elem` [1 .. 3]
+
+        when (diType == {- DEV -} 3) $
+            assertBool ("inode" ++ show n ++ ": invalid major, minor") $
+                (diMajor /= 0) || (diMinor /= 0)
+
+        assertBool ("inode" ++ show n ++ ": invalid addr referencing unused block") =<<
+            VS.foldM' (\ok addr -> (ok &&) <$> isBlockUsed img addr) True diAddrs
 
 --------------------------------------------------------------------------------
 
@@ -168,6 +159,10 @@ instance Show Dirent where
             , " }"
             ]
 
+
+isNullDirent :: Dirent -> Bool
+isNullDirent Dirent{..} = (deInum == 0) && VS.all (== 0) deName
+
 --------------------------------------------------------------------------------
 
 runTest :: TestTree -> IO Bool
@@ -186,22 +181,19 @@ runTest testTree = do
 createTests :: String -> Image -> TestTree
 createTests imgName img = testCaseSteps imgName \step -> do
 
-    step "Extracting superblock"
-    sb@Superblock{..} <- getSuperblock img
-    step (show sb)
-    testSuperblock sb
+    step "Checking superblock ..."
+    testSuperblock img
 
-    step "Extracting bitmap"
-    bm <- getBitmap img
-    step (show bm)
+    Superblock{..} <- getSuperblock img
 
-    step "Extracting dinodes"
-    dinodes <- getDinodes img
-    for_ dinodes (step . show)
+    step "Checking inodes ..."
+    for_ [0 .. sbNinodes - 1] (testNthDinode img)
 
 
-testSuperblock :: Superblock -> Assertion
-testSuperblock Superblock{..} = do
+testSuperblock :: Image -> Assertion
+testSuperblock img = do
+    Superblock{..} <- getSuperblock img
+
     let nb = 1
         ns = 1
         nl = sbNlog
