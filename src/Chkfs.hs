@@ -138,8 +138,9 @@ testNthDinode img inum dind@Dinode{..} =
             assertBool ("inode" ++ show inum ++ ": invalid major, minor") $
                 (diMajor /= 0) || (diMinor /= 0)
 
-        assertBool ("inode" ++ show inum ++ ": invalid addr referencing unused block") =<<
-            VS.foldM' (\ok addr -> (ok &&) <$> isBlockUsed img addr) True diAddrs
+        VS.forM_ diAddrs \addr -> do
+            assertBool ("inode" ++ show inum ++ ": invalid addr referencing unused block") =<<
+                isBlockUsed img addr
 
 --------------------------------------------------------------------------------
 
