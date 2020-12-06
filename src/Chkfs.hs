@@ -77,8 +77,9 @@ instance Show Bitmap where
     show (Bitmap bm) = showIntAtBase 2 intToDigit bm ""
 
 
-getBitmap :: Image -> Superblock -> IO Bitmap
-getBitmap img Superblock{..} =
+getBitmap :: Image -> IO Bitmap
+getBitmap img = do
+    Superblock{..} <- getSuperblock img
     let
         nBytes :: Int
         !nBytes = fromIntegral $ (sbSize - 1) `div` 8 + 1 -- ceil(size / 8)
@@ -92,8 +93,8 @@ getBitmap img Superblock{..} =
             | otherwise = do
                 w <- peekElemOff ptr n
                 go (n + 1) (bm .|. shiftL (fromIntegral w) (n * 8))
-    in
-        go 0 0
+
+    go 0 0
 
 
 isBlockUsed :: Image -> Word32 -> IO Bool
@@ -132,13 +133,11 @@ isNullDinode Dinode{..} =
         ]
 
 
-getDinodes :: Image -> Superblock -> IO [Dinode]
-getDinodes img Superblock{..} =
-    let
-        ptr :: Ptr Dinode
-        !ptr = castPtr (img `index` sbInodestart)
-    in
-        for [0 .. fromIntegral sbNinodes - 1] (peekElemOff ptr)
+getDinodes :: Image -> IO [Dinode]
+getDinodes img = do
+    Superblock{..} <- getSuperblock img
+    for [0 .. fromIntegral sbNinodes - 1]
+        (getNthDinode img)
 
 
 getNthDinode :: Image -> Word32 -> IO Dinode
@@ -193,11 +192,11 @@ createTests imgName img = testCaseSteps imgName \step -> do
     testSuperblock sb
 
     step "Extracting bitmap"
-    bm <- getBitmap img sb
+    bm <- getBitmap img
     step (show bm)
 
     step "Extracting dinodes"
-    dinodes <- getDinodes img sb
+    dinodes <- getDinodes img
     for_ dinodes (step . show)
 
 
