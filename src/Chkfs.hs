@@ -1,22 +1,24 @@
-{-# LANGUAGE BangPatterns    #-}
 {-# LANGUAGE BlockArguments  #-}
+{-# LANGUAGE DataKinds       #-}
+{-# LANGUAGE DeriveAnyClass  #-}
+{-# LANGUAGE DeriveGeneric   #-}
 {-# LANGUAGE LambdaCase      #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE TypeOperators   #-}
 
 module Chkfs where
 
 --------------------------------------------------------------------------------
 
-import           Data.Binary.Get
-import           Data.Bits
-import qualified Data.ByteString.Lazy as BL
-import           Data.Char
+import           Data.ByteString.Internal   (w2c)
 import           Data.Int
-import qualified Data.Vector          as V
-import qualified Data.Vector.Unboxed  as VU
+import qualified Data.Vector.Storable.Sized as VS
 import           Data.Word
-import           Numeric
-import           System.Exit
+import           Foreign.Ptr
+import           Foreign.Storable
+import           Foreign.Storable.Generic
+import           GHC.Generics
+import           GHC.TypeLits
 import           Test.Tasty
 import           Test.Tasty.HUnit
 import           Test.Tasty.Runners
@@ -35,63 +37,22 @@ _IPB :: Word32
 _IPB = 16
 
 
-_NDIRECT :: Word32
-_NDIRECT = 12
+type NDIRECT = 12
+
+
+type DIRSIZ = 14
 
 --------------------------------------------------------------------------------
 
-parseImage :: String -> Word32 -> BL.ByteString -> Either String Image
-parseImage imgName imgSize imgData =
-    case runGetOrFail (getImage imgName imgSize) imgData of
-        Right (_, _, img) -> Right img
-        Left (_, _, err)  -> Left err
+type Image = Ptr ()
+
+
+(!) :: Integral a => Image -> a -> Ptr ()
+img ! n = img `plusPtr` (fromIntegral n * fromIntegral _BSIZE)
 
 --------------------------------------------------------------------------------
 
-data Image = Image
-    { imgName    :: !String
-    , imgSize    :: {-# UNPACK #-} !Word32
-    , imgSb      :: !SuperBlock
-    , imgDinodes :: !(V.Vector Dinode)
-    , imgBitmap  :: !Bitmap
-    }
-    deriving (Show)
-
-
-getImage :: String -> Word32 -> Get Image
-getImage imgName imgSize = do
-    -- boot block
-    skip (fromIntegral _BSIZE)
-
-    -- super block
-    imgSb@SuperBlock{..} <- getSuperBlock
-    roundUp _BSIZE
-
-    -- log blocks
-    skip (fromIntegral $ _BSIZE * sbNlog)
-
-    -- inode blocks
-    imgDinodes <- getDinodes sbNinodes
-    skip 1 -- for when ninodes is divisible by IPB
-    roundUp _BSIZE
-
-    -- bitmap blocks
-    imgBitmap <- getBitmap sbSize
-    skip 1 -- for when size is divisible by BSIZE*8
-    roundUp _BSIZE
-
-    pure Image{..}
-
-
-roundUp :: Integral a => a -> Get ()
-roundUp n = do
-    m <- bytesRead
-    let n' = fromIntegral n
-    skip $ fromIntegral (n' - m `mod` n')
-
---------------------------------------------------------------------------------
-
-data SuperBlock = SuperBlock
+data Superblock = Superblock
     { sbMagic      :: {-# UNPACK #-} !Word32
     , sbSize       :: {-# UNPACK #-} !Word32
     , sbNblocks    :: {-# UNPACK #-} !Word32
@@ -101,143 +62,84 @@ data SuperBlock = SuperBlock
     , sbInodestart :: {-# UNPACK #-} !Word32
     , sbBmapstart  :: {-# UNPACK #-} !Word32
     }
-    deriving (Show)
-
-
-getSuperBlock :: Get SuperBlock
-getSuperBlock =
-    SuperBlock
-        <$> getWord32host
-        <*> getWord32host
-        <*> getWord32host
-        <*> getWord32host
-        <*> getWord32host
-        <*> getWord32host
-        <*> getWord32host
-        <*> getWord32host
-
---------------------------------------------------------------------------------
-
-getDinodes :: Word32 -> Get (V.Vector Dinode)
-getDinodes ninodes =
-    V.generateM (fromIntegral ninodes) (getDinode . fromIntegral)
-
-
-data FileType
-    = Unknown
-    | Dir
-    | File
-    | Dev
-    deriving (Eq, Show)
+    deriving (Show, Generic, GStorable)
 
 
 data Dinode = Dinode
-    { dinInum  :: {-# UNPACK #-} !Word32
-    , dinType  :: !FileType
-    , dinMajor :: {-# UNPACK #-} !Int16
-    , dinMinor :: {-# UNPACK #-} !Int16
-    , dinNlink :: {-# UNPACK #-} !Int16
-    , dinSize  :: {-# UNPACK #-} !Word32
-    , dinAddrs :: !(VU.Vector Word32)
+    { diInum  :: {-# UNPACK #-} !Word32
+    , diType  :: {-# UNPACK #-} !Int16
+    , diMajor :: {-# UNPACK #-} !Int16
+    , diMinor :: {-# UNPACK #-} !Int16
+    , diNlink :: {-# UNPACK #-} !Int16
+    , diSize  :: {-# UNPACK #-} !Word32
+    , diAddrs :: !(VS.Vector (NDIRECT + 1) Word32)
     }
-    deriving (Show)
+    deriving (Show, Generic, GStorable)
 
 
-getDinode :: Word32 -> Get Dinode
-getDinode dinInum = do
-    Dinode dinInum
-        <$> fmap toFileType getInt16host
-        <*> getInt16host
-        <*> getInt16host
-        <*> getInt16host
-        <*> getWord32host
-        <*> VU.replicateM (fromIntegral $ _NDIRECT + 1) getWord32host
-
-    where
-        toFileType :: Int16 -> FileType
-        toFileType = \case
-            1 -> Dir
-            2 -> File
-            3 -> Dev
-            _ -> Unknown
-
---------------------------------------------------------------------------------
-
-newtype Bitmap = Bitmap Integer
+data Dirent = Dirent
+    { deInum :: {-# UNPACK #-} !Word16
+    , deName :: !(VS.Vector DIRSIZ Word8)
+    }
+    deriving (Generic, GStorable)
 
 
-instance Show Bitmap where
-    show (Bitmap bm) = showIntAtBase 2 intToDigit bm ""
-
-
-getBitmap :: Word32 -> Get Bitmap
-getBitmap size = go 0 0
-    where
-        nbytes :: Int
-        nbytes = fromIntegral $ (size + 8 - 1) `div` 8 -- ceil(size / 8)
-
-        go :: Int -> Integer -> Get Bitmap
-        go !n !bm
-            | n >= nbytes = pure (Bitmap bm)
-            | otherwise = do
-                w <- getWord8
-                go (n + 1) (bm .|. shiftL (fromIntegral w) (n * 8))
-
-
-isBlockUsed :: Bitmap -> Word32 -> Bool
-isBlockUsed (Bitmap bm) b = testBit bm (fromIntegral b)
+instance Show Dirent where
+    show Dirent{..} =
+        concat
+            [ "Dirent { deInum = "
+            , show deInum
+            , ", deName = "
+            , map w2c (VS.toList deName)
+            , " }"
+            ]
 
 --------------------------------------------------------------------------------
 
-runTest :: TestTree -> IO ()
+runTest :: TestTree -> IO Bool
 runTest testTree = do
     installSignalHandlers
 
     sequence (tryIngredients defaultIngredients mempty testTree) >>= \case
         Just True -> do
-            exitSuccess
+            pure True
 
         _ -> do
-            exitFailure
+            pure False
 
 --------------------------------------------------------------------------------
 
-tests :: Image -> TestTree
-tests img@Image{..} =
-    testGroup imgName
-        [ testsSb img
-        ]
+tests :: String -> Image -> TestTree
+tests imgName img = testCaseSteps imgName \step -> do
 
+    step "Checking super block..."
+    Superblock{..} <- peek (castPtr (img ! 1) :: Ptr Superblock)
 
-testsSb :: Image -> TestTree
-testsSb Image{ imgSb = SuperBlock{..}, .. } =
-    testGroup "super block"
-        [ testCase "sbMagic should be _FSMAGIC" $
-            sbMagic @?= _FSMAGIC
+    do
+        let nb = 1
+            ns = 1
+            nl = sbNlog
+            ni = sbNinodes `div` _IPB + 1
+            nm = sbSize `div` (_BSIZE * 8) + 1
+            nd = sbSize - (nb + ns + nl + ni + nm)
 
-        , testCase "sbSize should be consistent" do
-            sbSize @?= (imgSize `div` _BSIZE)
-            sbSize @?= (nb + ns + nl + ni + nm + nd)
+        assertBool "sbMagic was not FSMAGIC" $
+            sbMagic == _FSMAGIC
 
-        , testCase "sbNblock should be consistent" $
-            sbNblocks @?= nd
+        assertBool "sbSize was not total count of blocks" $
+            sbSize == (nb + ns + nl + ni + nm + nd)
 
-        , testCase "sbNlog should be consistent" $
-            sbNlog @?= (sbInodestart - sbLogstart)
+        assertBool "sbNblock was not consistent" $
+            sbNblocks == nd
 
-        , testCase "sbLogstart should be 2" $
-            sbLogstart @?= 2
+        assertBool "sbNlog was not consistent" $
+            sbNlog == nl
 
-        , testCase "sbInodestart should be sbLogstart + sbNlog" $
-            sbInodestart @?= (sbLogstart + sbNlog)
+        assertBool "sbLogstart was not consistent" $
+            sbLogstart == (nb + ns)
 
-        , testCase "sbBmapstart should be sbInodestart + ni" $
-            sbBmapstart @?= (sbInodestart + ni)
-        ]
-    where
-        nb = 1
-        ns = 1
-        nl = sbNlog
-        ni = sbNinodes `div` _IPB + 1
-        nm = sbSize `div` (_BSIZE * 8) + 1
-        nd = sbSize - (nb + ns + nl + ni + nm)
+        assertBool "sbInodestart was not consistent" $
+            sbInodestart == (nb + ns + nl)
+
+        assertBool "sbBmapstart was not consistent" $
+            sbBmapstart == (nb + ns + nl + ni)

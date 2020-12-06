@@ -5,10 +5,10 @@ module Main where
 --------------------------------------------------------------------------------
 
 import           Control.Monad
-import qualified Data.ByteString.Lazy as BL
 import           System.Environment
 import           System.Exit
 import           System.IO
+import           System.IO.MMap
 
 import           Chkfs
 
@@ -22,15 +22,9 @@ main = do
         hPutStr stderr $ "Usage: " ++ prog ++ " FILE"
 
     let imgName = head args
-    imgOrErr <- withBinaryFile imgName ReadMode \h -> do
-        imgSize <- hFileSize h
-        imgData <- BL.hGetContents h
-        pure $! parseImage imgName (fromInteger imgSize) imgData
+    ok <- mmapWithFilePtr imgName ReadOnly Nothing \(img, _) -> do
+        runTest (tests imgName img)
 
-    case imgOrErr of
-        Right img -> do
-            runTest (tests img)
-
-        Left err -> do
-            hPutStrLn stderr err
-            exitFailure
+    if ok
+        then exitSuccess
+        else exitFailure
