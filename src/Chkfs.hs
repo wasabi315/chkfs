@@ -131,16 +131,35 @@ getNthDinode img n = do
 testNthDinode :: Image -> Word32 -> Dinode -> IO ()
 testNthDinode img inum dind@Dinode{..} =
     unless (isNullDinode dind) do
-        assertBool ("inode" ++ show inum ++ ": invalid file type") $
-            diType `elem` [_T_DIR, _T_FILE, _T_DEV]
+        assertBool
+            (concat
+                [ "inode "
+                , show inum
+                , ": invalid file type "
+                , show diType
+                ])
+            (diType `elem` [_T_DIR, _T_FILE, _T_DEV])
 
         when (diType == _T_DEV) do
-            assertBool ("inode" ++ show inum ++ ": invalid major, minor") $
-                (diMajor /= 0) || (diMinor /= 0)
+            assertBool
+                (concat
+                    [ "inode "
+                    , show inum
+                    , ": invalid (major, minor) "
+                    , show (diMajor, diMinor)
+                    ])
+                ((diMajor /= 0) || (diMinor /= 0))
 
         VS.forM_ diAddrs \addr -> do
-            assertBool ("inode" ++ show inum ++ ": invalid addr referencing unused block") =<<
-                isBlockUsed img addr
+            b <- isBlockUsed img addr
+            assertBool
+                (concat
+                    [ "inode "
+                    , show inum
+                    , ": invalid addr referencing unused block "
+                    , show addr
+                    ])
+                b
 
         when (diType == _T_DIR) do
             foreachAddrs img diAddrs \addr -> do
@@ -152,7 +171,14 @@ testNthDinode img inum dind@Dinode{..} =
                     unless (isNullDirent de) do
                         dind' <- getNthDinode img (fromIntegral deInum)
                         assertBool
-                            "a dirent referencing unused inode"
+                            (concat
+                                [ "inode "
+                                , show inum
+                                , ": invalid dirent named "
+                                , showDeName deName
+                                , " referencing unused inode "
+                                , show deInum
+                                ])
                             (not $ isNullDinode dind')
 
 
@@ -190,9 +216,13 @@ instance Show Dirent where
             [ "Dirent { deInum = "
             , show deInum
             , ", deName = "
-            , map w2c (VS.toList deName)
+            , showDeName deName
             , " }"
             ]
+
+
+showDeName :: VS.Vector DIRSIZ Word8 -> String
+showDeName = map w2c . VS.toList
 
 
 isNullDirent :: Dirent -> Bool
