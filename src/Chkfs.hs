@@ -95,6 +95,16 @@ getBitmap img Superblock{..} =
     in
         go 0 0
 
+
+isBlockUsed :: Image -> Word32 -> IO Bool
+isBlockUsed img bnum = do
+    Superblock{..} <- getSuperblock img
+
+    let !ptr = castPtr (img `index` sbBmapstart) :: Ptr Word8
+
+    w <- peekElemOff ptr (fromIntegral bnum `div` 8)
+    pure $! testBit w (fromIntegral bnum `mod` 8)
+
 --------------------------------------------------------------------------------
 
 type NDIRECT = 12
