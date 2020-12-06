@@ -122,19 +122,17 @@ getNthDinode img n = do
     peekElemOff ptr (fromIntegral n)
 
 
-testNthDinode :: Image -> Word32 -> IO ()
-testNthDinode img n = do
-    dind@Dinode{..} <- getNthDinode img n
-
+testNthDinode :: Image -> Word32 -> Dinode -> IO ()
+testNthDinode img inum dind@Dinode{..} =
     unless (isNullDinode dind) do
-        assertBool ("inode" ++ show n ++ ": invalid file type") $
+        assertBool ("inode" ++ show inum ++ ": invalid file type") $
             diType `elem` [1 .. 3]
 
         when (diType == {- DEV -} 3) $
-            assertBool ("inode" ++ show n ++ ": invalid major, minor") $
+            assertBool ("inode" ++ show inum ++ ": invalid major, minor") $
                 (diMajor /= 0) || (diMinor /= 0)
 
-        assertBool ("inode" ++ show n ++ ": invalid addr referencing unused block") =<<
+        assertBool ("inode" ++ show inum ++ ": invalid addr referencing unused block") =<<
             VS.foldM' (\ok addr -> (ok &&) <$> isBlockUsed img addr) True diAddrs
 
 --------------------------------------------------------------------------------
@@ -182,18 +180,17 @@ createTests :: String -> Image -> TestTree
 createTests imgName img = testCaseSteps imgName \step -> do
 
     step "Checking superblock ..."
-    testSuperblock img
-
-    Superblock{..} <- getSuperblock img
+    sb@Superblock{..} <- getSuperblock img
+    testSuperblock sb
 
     step "Checking inodes ..."
-    for_ [0 .. sbNinodes - 1] (testNthDinode img)
+    for_ [0 .. sbNinodes - 1] \inum -> do
+        dind <- getNthDinode img inum
+        testNthDinode img inum dind
 
 
-testSuperblock :: Image -> Assertion
-testSuperblock img = do
-    Superblock{..} <- getSuperblock img
-
+testSuperblock :: Superblock -> Assertion
+testSuperblock Superblock{..} = do
     let nb = 1
         ns = 1
         nl = sbNlog
