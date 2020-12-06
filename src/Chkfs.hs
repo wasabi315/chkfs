@@ -147,9 +147,10 @@ testNthDinode img inum dind@Dinode{..} =
                 when (addr /= 0) do
                     let ptr = castPtr (img `index` addr) :: Ptr Dirent
                     for_ [0 .. fromIntegral _BSIZE `div` 16 - 1] \n -> do
-                        de <- peekElemOff ptr n
+                        de@Dirent{..} <- peekElemOff ptr n
                         unless (isNullDirent de) do
-                            print de
+                            dind' <- getNthDinode img (fromIntegral deInum)
+                            assertBool "a dirent referencing unused inode" (not $ isNullDinode dind')
 
             let addr = VS.last diAddrs
             when (addr /= 0) do
@@ -159,9 +160,10 @@ testNthDinode img inum dind@Dinode{..} =
                     when (addr' /= 0) do
                         let ptr' = castPtr (img `index` addr') :: Ptr Dirent
                         for_ [0 .. fromIntegral _BSIZE `div` 16 - 1] \n -> do
-                            de <- peekElemOff ptr' n
+                            de@Dirent{..} <- peekElemOff ptr' n
                             unless (isNullDirent de) do
-                                print de
+                                dind' <- getNthDinode img (fromIntegral deInum)
+                                assertBool "a dirent referencing unused inode" (not $ isNullDinode dind')
 
 --------------------------------------------------------------------------------
 
