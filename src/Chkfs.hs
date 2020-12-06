@@ -143,27 +143,34 @@ testNthDinode img inum dind@Dinode{..} =
                 isBlockUsed img addr
 
         when (diType == _T_DIR) do
-            VS.forM_ (VS.init diAddrs) \addr ->
-                when (addr /= 0) do
-                    let ptr = castPtr (img `index` addr) :: Ptr Dirent
-                    for_ [0 .. fromIntegral _BSIZE `div` 16 - 1] \n -> do
-                        de@Dirent{..} <- peekElemOff ptr n
-                        unless (isNullDirent de) do
-                            dind' <- getNthDinode img (fromIntegral deInum)
-                            assertBool "a dirent referencing unused inode" (not $ isNullDinode dind')
+            foreachAddrs img diAddrs \addr -> do
+                let ptr = castPtr (img `index` addr) :: Ptr Dirent
 
-            let addr = VS.last diAddrs
-            when (addr /= 0) do
-                let ptr = castPtr (img `index` addr) :: Ptr Word32
-                for_ [0 .. fromIntegral _BSIZE `div` 4 - 1] \i -> do
-                    addr' <- peekElemOff ptr i
-                    when (addr' /= 0) do
-                        let ptr' = castPtr (img `index` addr') :: Ptr Dirent
-                        for_ [0 .. fromIntegral _BSIZE `div` 16 - 1] \n -> do
-                            de@Dirent{..} <- peekElemOff ptr' n
-                            unless (isNullDirent de) do
-                                dind' <- getNthDinode img (fromIntegral deInum)
-                                assertBool "a dirent referencing unused inode" (not $ isNullDinode dind')
+                for_ [0 .. fromIntegral _BSIZE `div` 16 - 1] \n -> do
+                    de@Dirent{..} <- peekElemOff ptr n
+
+                    unless (isNullDirent de) do
+                        dind' <- getNthDinode img (fromIntegral deInum)
+                        assertBool
+                            "a dirent referencing unused inode"
+                            (not $ isNullDinode dind')
+
+
+foreachAddrs
+    :: Image
+    -> VS.Vector (NDIRECT + 1) Word32
+    -> (Word32 -> IO ())
+    -> IO ()
+foreachAddrs img addrs f = do
+    VS.forM_ (VS.init addrs) \addr ->
+        when (addr /= 0) (f addr)
+
+    -- indirect block
+    let ptr = castPtr (img `index` VS.last addrs) :: Ptr Word32
+    for_ [0 .. fromIntegral _BSIZE `div` 4 - 1] \i -> do
+        addr <- peekByteOff ptr i
+        when (addr /= 0) (f addr)
+
 
 --------------------------------------------------------------------------------
 
