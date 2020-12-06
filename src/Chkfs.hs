@@ -140,6 +140,13 @@ getDinodes img Superblock{..} =
     in
         for [0 .. fromIntegral sbNinodes - 1] (peekElemOff ptr)
 
+
+getNthDinode :: Image -> Word32 -> IO Dinode
+getNthDinode img n = do
+    Superblock{..} <- getSuperblock img
+    let !ptr = castPtr (img `index` sbInodestart) :: Ptr Dinode
+    peekElemOff ptr (fromIntegral n)
+
 --------------------------------------------------------------------------------
 
 type DIRSIZ = 14
