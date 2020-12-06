@@ -14,7 +14,9 @@ module Chkfs where
 import           Data.Bits
 import           Data.ByteString.Internal   (w2c)
 import           Data.Char
+import           Data.Foldable
 import           Data.Int
+import           Data.Traversable
 import qualified Data.Vector.Storable.Sized as VS
 import           Data.Word
 import           Foreign.Ptr
@@ -119,6 +121,15 @@ isNullDinode Dinode{..} =
         , VS.all (== 0) diAddrs
         ]
 
+
+getDinodes :: Image -> Superblock -> IO [Dinode]
+getDinodes img Superblock{..} =
+    let
+        ptr :: Ptr Dinode
+        !ptr = castPtr (img `index` sbInodestart)
+    in
+        for [0 .. fromIntegral sbNinodes - 1] (peekElemOff ptr)
+
 --------------------------------------------------------------------------------
 
 type DIRSIZ = 14
@@ -159,9 +170,18 @@ runTest testTree = do
 createTests :: String -> Image -> TestTree
 createTests imgName img = testCaseSteps imgName \step -> do
 
-    step "Checking super block..."
+    step "Extracting superblock"
     sb@Superblock{..} <- getSuperblock img
+    step (show sb)
     testSuperblock sb
+
+    step "Extracting bitmap"
+    bm <- getBitmap img sb
+    step (show bm)
+
+    step "Extracting dinodes"
+    dinodes <- getDinodes img sb
+    for_ dinodes (step . show)
 
 
 testSuperblock :: Superblock -> Assertion
