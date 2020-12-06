@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns    #-}
 {-# LANGUAGE BlockArguments  #-}
 {-# LANGUAGE DataKinds       #-}
 {-# LANGUAGE DeriveAnyClass  #-}
@@ -10,7 +11,9 @@ module Chkfs where
 
 --------------------------------------------------------------------------------
 
+import           Data.Bits
 import           Data.ByteString.Internal   (w2c)
+import           Data.Char
 import           Data.Int
 import qualified Data.Vector.Storable.Sized as VS
 import           Data.Word
@@ -19,6 +22,7 @@ import           Foreign.Storable
 import           Foreign.Storable.Generic
 import           GHC.Generics
 import           GHC.TypeLits
+import           Numeric
 import           Test.Tasty
 import           Test.Tasty.HUnit
 import           Test.Tasty.Runners
@@ -47,8 +51,8 @@ type DIRSIZ = 14
 type Image = Ptr ()
 
 
-(!) :: Integral a => Image -> a -> Ptr ()
-img ! n = img `plusPtr` (fromIntegral n * fromIntegral _BSIZE)
+index :: Integral a => Image -> a -> Ptr ()
+index img n = img `plusPtr` (fromIntegral n * fromIntegral _BSIZE)
 
 --------------------------------------------------------------------------------
 
@@ -64,6 +68,38 @@ data Superblock = Superblock
     }
     deriving (Show, Generic, GStorable)
 
+
+getSuperblock :: Image -> IO Superblock
+getSuperblock img = peek (castPtr (img `index` 1) :: Ptr Superblock)
+
+--------------------------------------------------------------------------------
+
+newtype Bitmap = Bitmap Integer
+
+
+instance Show Bitmap where
+    show (Bitmap bm) = showIntAtBase 2 intToDigit bm ""
+
+
+getBitmap :: Image -> Superblock -> IO Bitmap
+getBitmap img Superblock{..} =
+    let
+        nBytes :: Int
+        !nBytes = fromIntegral $ (sbSize - 1) `div` 8 + 1 -- ceil(size / 8)
+
+        ptr :: Ptr Word8
+        !ptr = castPtr (img `index` sbBmapstart)
+
+        go :: Int -> Integer -> IO Bitmap
+        go !n !bm
+            | n >= nBytes = pure (Bitmap bm)
+            | otherwise = do
+                w <- peekElemOff ptr n
+                go (n + 1) (bm .|. shiftL (fromIntegral w) (n * 8))
+    in
+        go 0 0
+
+--------------------------------------------------------------------------------
 
 data Dinode = Dinode
     { diInum  :: {-# UNPACK #-} !Word32
@@ -109,11 +145,11 @@ runTest testTree = do
 
 --------------------------------------------------------------------------------
 
-createTests :: String -> Int -> Image -> TestTree
-createTests imgName imgSize img = testCaseSteps imgName \step -> do
+createTests :: String -> Image -> TestTree
+createTests imgName img = testCaseSteps imgName \step -> do
 
     step "Checking super block..."
-    sb@Superblock{..} <- peek (castPtr (img ! 1) :: Ptr Superblock)
+    sb@Superblock{..} <- getSuperblock img
     testSuperblock sb
 
 

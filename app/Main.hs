@@ -22,8 +22,8 @@ main = do
         hPutStr stderr $ "Usage: " ++ prog ++ " FILE"
 
     let imgName = head args
-    ok <- mmapWithFilePtr imgName ReadOnly Nothing \(img, imgSize) -> do
-        runTest (createTests imgName imgSize img)
+    ok <- mmapWithFilePtr imgName ReadOnly Nothing \(img, _) -> do
+        runTest (createTests imgName img)
 
     if ok
         then exitSuccess
