@@ -128,7 +128,118 @@ getNthDinode img n = do
     peekElemOff ptr (fromIntegral n)
 
 
-testNthDinode :: Image -> Word32 -> Dinode -> IO ()
+foreachAddrs
+    :: Image
+    -> VS.Vector (NDIRECT + 1) Word32
+    -> (Word32 -> IO ())
+    -> IO ()
+foreachAddrs img addrs f = do
+    VS.forM_ (VS.init addrs) \addr ->
+        when (addr /= 0) (f addr)
+
+    -- indirect block
+    let ptr = castPtr (img `index` VS.last addrs) :: Ptr Word32
+    for_ [0 .. fromIntegral _BSIZE `div` 4 - 1] \i -> do
+        addr <- peekByteOff ptr i
+        when (addr /= 0) (f addr)
+
+--------------------------------------------------------------------------------
+
+type DIRSIZ = 14
+
+
+data Dirent = Dirent
+    { deInum :: {-# UNPACK #-} !Word16
+    , deName :: !(VS.Vector DIRSIZ Word8)
+    }
+    deriving (Generic, GStorable)
+
+
+instance Show Dirent where
+    show Dirent{..} =
+        concat
+            [ "Dirent { deInum = "
+            , show deInum
+            , ", deName = "
+            , showDeName deName
+            , " }"
+            ]
+
+
+showDeName :: VS.Vector DIRSIZ Word8 -> String
+showDeName = map w2c . VS.toList
+
+
+isNullDirent :: Dirent -> Bool
+isNullDirent Dirent{..} = (deInum == 0) && VS.all (== 0) deName
+
+--------------------------------------------------------------------------------
+
+runTest :: TestTree -> IO Bool
+runTest testTree = do
+    installSignalHandlers
+
+    sequence (tryIngredients defaultIngredients mempty testTree) >>= \case
+        Just True -> do
+            pure True
+
+        _ -> do
+            pure False
+
+--------------------------------------------------------------------------------
+
+createTests :: String -> Image -> TestTree
+createTests imgName img = testCaseSteps imgName \step -> do
+    step "Checking superblock ..."
+    testSuperblock img
+
+    step "Checking inodes ..."
+    testDinodes img
+
+
+testSuperblock :: Image -> Assertion
+testSuperblock img = do
+    Superblock{..} <- getSuperblock img
+
+    let nb = 1
+        ns = 1
+        nl = sbNlog
+        ni = sbNinodes `div` _IPB + 1
+        nm = sbSize `div` (_BSIZE * 8) + 1
+        nd = sbSize - (nb + ns + nl + ni + nm)
+
+    assertBool "sbMagic was not FSMAGIC" $
+        sbMagic == _FSMAGIC
+
+    assertBool "sbSize was not total count of blocks" $
+        sbSize == (nb + ns + nl + ni + nm + nd)
+
+    assertBool "sbNblock was not consistent" $
+        sbNblocks == nd
+
+    assertBool "sbNlog was not consistent" $
+        sbNlog == nl
+
+    assertBool "sbLogstart was not consistent" $
+        sbLogstart == (nb + ns)
+
+    assertBool "sbInodestart was not consistent" $
+        sbInodestart == (nb + ns + nl)
+
+    assertBool "sbBmapstart was not consistent" $
+        sbBmapstart == (nb + ns + nl + ni)
+
+
+testDinodes :: Image -> Assertion
+testDinodes img = do
+    Superblock{..} <- getSuperblock img
+
+    for_ [0 .. sbNinodes - 1] \inum -> do
+        dind <- getNthDinode img inum
+        testNthDinode img inum dind
+
+
+testNthDinode :: Image -> Word32 -> Dinode -> Assertion
 testNthDinode img inum dind@Dinode{..} =
     unless (isNullDinode dind) do
         assertBool
@@ -180,108 +291,3 @@ testNthDinode img inum dind@Dinode{..} =
                                 , show deInum
                                 ])
                             (not $ isNullDinode dind')
-
-
-foreachAddrs
-    :: Image
-    -> VS.Vector (NDIRECT + 1) Word32
-    -> (Word32 -> IO ())
-    -> IO ()
-foreachAddrs img addrs f = do
-    VS.forM_ (VS.init addrs) \addr ->
-        when (addr /= 0) (f addr)
-
-    -- indirect block
-    let ptr = castPtr (img `index` VS.last addrs) :: Ptr Word32
-    for_ [0 .. fromIntegral _BSIZE `div` 4 - 1] \i -> do
-        addr <- peekByteOff ptr i
-        when (addr /= 0) (f addr)
-
-
---------------------------------------------------------------------------------
-
-type DIRSIZ = 14
-
-
-data Dirent = Dirent
-    { deInum :: {-# UNPACK #-} !Word16
-    , deName :: !(VS.Vector DIRSIZ Word8)
-    }
-    deriving (Generic, GStorable)
-
-
-instance Show Dirent where
-    show Dirent{..} =
-        concat
-            [ "Dirent { deInum = "
-            , show deInum
-            , ", deName = "
-            , showDeName deName
-            , " }"
-            ]
-
-
-showDeName :: VS.Vector DIRSIZ Word8 -> String
-showDeName = map w2c . VS.toList
-
-
-isNullDirent :: Dirent -> Bool
-isNullDirent Dirent{..} = (deInum == 0) && VS.all (== 0) deName
-
---------------------------------------------------------------------------------
-
-runTest :: TestTree -> IO Bool
-runTest testTree = do
-    installSignalHandlers
-
-    sequence (tryIngredients defaultIngredients mempty testTree) >>= \case
-        Just True -> do
-            pure True
-
-        _ -> do
-            pure False
-
---------------------------------------------------------------------------------
-
-createTests :: String -> Image -> TestTree
-createTests imgName img = testCaseSteps imgName \step -> do
-
-    step "Checking superblock ..."
-    sb@Superblock{..} <- getSuperblock img
-    testSuperblock sb
-
-    step "Checking inodes ..."
-    for_ [0 .. sbNinodes - 1] \inum -> do
-        dind <- getNthDinode img inum
-        testNthDinode img inum dind
-
-
-testSuperblock :: Superblock -> Assertion
-testSuperblock Superblock{..} = do
-    let nb = 1
-        ns = 1
-        nl = sbNlog
-        ni = sbNinodes `div` _IPB + 1
-        nm = sbSize `div` (_BSIZE * 8) + 1
-        nd = sbSize - (nb + ns + nl + ni + nm)
-
-    assertBool "sbMagic was not FSMAGIC" $
-        sbMagic == _FSMAGIC
-
-    assertBool "sbSize was not total count of blocks" $
-        sbSize == (nb + ns + nl + ni + nm + nd)
-
-    assertBool "sbNblock was not consistent" $
-        sbNblocks == nd
-
-    assertBool "sbNlog was not consistent" $
-        sbNlog == nl
-
-    assertBool "sbLogstart was not consistent" $
-        sbLogstart == (nb + ns)
-
-    assertBool "sbInodestart was not consistent" $
-        sbInodestart == (nb + ns + nl)
-
-    assertBool "sbBmapstart was not consistent" $
-        sbBmapstart == (nb + ns + nl + ni)
