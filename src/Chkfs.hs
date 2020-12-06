@@ -113,33 +113,36 @@ createTests :: String -> Int -> Image -> TestTree
 createTests imgName imgSize img = testCaseSteps imgName \step -> do
 
     step "Checking super block..."
-    Superblock{..} <- peek (castPtr (img ! 1) :: Ptr Superblock)
+    sb@Superblock{..} <- peek (castPtr (img ! 1) :: Ptr Superblock)
+    testSuperblock sb
 
-    do
-        let nb = 1
-            ns = 1
-            nl = sbNlog
-            ni = sbNinodes `div` _IPB + 1
-            nm = sbSize `div` (_BSIZE * 8) + 1
-            nd = sbSize - (nb + ns + nl + ni + nm)
 
-        assertBool "sbMagic was not FSMAGIC" $
-            sbMagic == _FSMAGIC
+testSuperblock :: Superblock -> Assertion
+testSuperblock Superblock{..} = do
+    let nb = 1
+        ns = 1
+        nl = sbNlog
+        ni = sbNinodes `div` _IPB + 1
+        nm = sbSize `div` (_BSIZE * 8) + 1
+        nd = sbSize - (nb + ns + nl + ni + nm)
 
-        assertBool "sbSize was not total count of blocks" $
-            sbSize == (nb + ns + nl + ni + nm + nd)
+    assertBool "sbMagic was not FSMAGIC" $
+        sbMagic == _FSMAGIC
 
-        assertBool "sbNblock was not consistent" $
-            sbNblocks == nd
+    assertBool "sbSize was not total count of blocks" $
+        sbSize == (nb + ns + nl + ni + nm + nd)
 
-        assertBool "sbNlog was not consistent" $
-            sbNlog == nl
+    assertBool "sbNblock was not consistent" $
+        sbNblocks == nd
 
-        assertBool "sbLogstart was not consistent" $
-            sbLogstart == (nb + ns)
+    assertBool "sbNlog was not consistent" $
+        sbNlog == nl
 
-        assertBool "sbInodestart was not consistent" $
-            sbInodestart == (nb + ns + nl)
+    assertBool "sbLogstart was not consistent" $
+        sbLogstart == (nb + ns)
 
-        assertBool "sbBmapstart was not consistent" $
-            sbBmapstart == (nb + ns + nl + ni)
+    assertBool "sbInodestart was not consistent" $
+        sbInodestart == (nb + ns + nl)
+
+    assertBool "sbBmapstart was not consistent" $
+        sbBmapstart == (nb + ns + nl + ni)
