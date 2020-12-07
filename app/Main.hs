@@ -6,7 +6,6 @@ module Main where
 
 import           Control.Monad
 import           System.Environment
-import           System.Exit
 import           System.IO
 import           System.IO.MMap
 
@@ -22,9 +21,6 @@ main = do
         hPutStr stderr $ "Usage: " ++ prog ++ " FILE"
 
     let imgName = head args
-    ok <- mmapWithFilePtr imgName ReadOnly Nothing \(img, _) -> do
-        runTest (createTests imgName img)
-
-    if ok
-        then exitSuccess
-        else exitFailure
+    mmapWithFilePtr imgName ReadOnly Nothing \(img, _) -> do
+        doCheck (superblockSpec img)
+        doCheck (inodesSpec img)

@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 4e111a37e8859dfb21cb6a7ad3d112c9ff993c9de1ed5fe429178b0c4c3230a3
+-- hash: e82b41109c6189141fbe837205edae63185100ce266bb7586686ccfc6e05caeb
 
 name:           chkfs
 version:        0.1.0.0
@@ -31,9 +31,9 @@ library
     , binary
     , bytestring
     , derive-storable
+    , hspec
+    , hspec-core
     , mmap
-    , tasty
-    , tasty-hunit
     , vector
     , vector-sized
   default-language: Haskell2010
@@ -50,9 +50,9 @@ executable chkfs
     , bytestring
     , chkfs
     , derive-storable
+    , hspec
+    , hspec-core
     , mmap
-    , tasty
-    , tasty-hunit
     , vector
     , vector-sized
   default-language: Haskell2010

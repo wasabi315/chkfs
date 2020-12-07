@@ -3,7 +3,6 @@
 {-# LANGUAGE DataKinds       #-}
 {-# LANGUAGE DeriveAnyClass  #-}
 {-# LANGUAGE DeriveGeneric   #-}
-{-# LANGUAGE LambdaCase      #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TypeOperators   #-}
 
@@ -12,6 +11,7 @@ module Chkfs where
 --------------------------------------------------------------------------------
 
 import           Control.Monad
+import           Control.Monad.IO.Class
 import           Data.Bits
 import           Data.ByteString.Internal   (w2c)
 import           Data.Char
@@ -25,9 +25,9 @@ import           Foreign.Storable.Generic
 import           GHC.Generics
 import           GHC.TypeLits
 import           Numeric
-import           Test.Tasty
-import           Test.Tasty.HUnit
-import           Test.Tasty.Runners
+import           Test.Hspec
+import           Test.Hspec.Core.Runner
+import           Test.Hspec.Core.Spec
 
 --------------------------------------------------------------------------------
 
@@ -122,17 +122,16 @@ isNullDinode Dinode{..} =
 getNthDinode :: Image -> Word32 -> IO Dinode
 getNthDinode img n = do
     Superblock{..} <- getSuperblock img
-    assertBool ("invalid inode number: " ++ show n) (n < sbNinodes)
-
     let !ptr = castPtr (img `index` sbInodestart) :: Ptr Dinode
     peekElemOff ptr (fromIntegral n)
 
 
 foreachAddrs
-    :: Image
+    :: MonadIO m
+    => Image
     -> VS.Vector (NDIRECT + 1) Word32
-    -> (Word32 -> IO ())
-    -> IO ()
+    -> (Word32 -> m ())
+    -> m ()
 foreachAddrs img addrs f = do
     VS.forM_ (VS.init addrs) \addr ->
         when (addr /= 0) (f addr)
@@ -140,7 +139,7 @@ foreachAddrs img addrs f = do
     -- indirect block
     let ptr = castPtr (img `index` VS.last addrs) :: Ptr Word32
     for_ [0 .. fromIntegral _BSIZE `div` 4 - 1] \i -> do
-        addr <- peekByteOff ptr i
+        addr <- liftIO $ peekByteOff ptr i
         when (addr /= 0) (f addr)
 
 --------------------------------------------------------------------------------
@@ -175,119 +174,84 @@ isNullDirent Dirent{..} = (deInum == 0) && VS.all (== 0) deName
 
 --------------------------------------------------------------------------------
 
-runTest :: TestTree -> IO Bool
-runTest testTree = do
-    installSignalHandlers
-
-    sequence (tryIngredients defaultIngredients mempty testTree) >>= \case
-        Just True -> do
-            pure True
-
-        _ -> do
-            pure False
+-- Orphan instance
+instance MonadIO (SpecM a) where
+    liftIO = runIO
 
 --------------------------------------------------------------------------------
 
-createTests :: String -> Image -> TestTree
-createTests imgName img = testCaseSteps imgName \step -> do
-    step "Checking superblock ..."
-    testSuperblock img
+doCheck :: Spec -> IO ()
+doCheck spec = runSpec spec defaultConfig >>= evaluateSummary
 
-    step "Checking inodes ..."
-    testDinodes img
+--------------------------------------------------------------------------------
 
+superblockSpec :: Image -> Spec
+superblockSpec img =
+    describe "superblock" do
+        Superblock{..} <- runIO $ getSuperblock img
 
-testSuperblock :: Image -> Assertion
-testSuperblock img = do
-    Superblock{..} <- getSuperblock img
+        let nb = 1
+            ns = 1
+            nl = sbNlog
+            ni = sbNinodes `div` _IPB + 1
+            nm = sbSize `div` (_BSIZE * 8) + 1
+            nd = sbSize - (nb + ns + nl + ni + nm)
 
-    let nb = 1
-        ns = 1
-        nl = sbNlog
-        ni = sbNinodes `div` _IPB + 1
-        nm = sbSize `div` (_BSIZE * 8) + 1
-        nd = sbSize - (nb + ns + nl + ni + nm)
+        specify "sbMagic should be FSMAGIC" do
+            sbMagic `shouldBe` _FSMAGIC
 
-    assertBool "sbMagic was not FSMAGIC" $
-        sbMagic == _FSMAGIC
+        specify "sbSize was not total count of blocks" do
+            sbSize `shouldBe` (nb + ns + nl + ni + nm + nd)
 
-    assertBool "sbSize was not total count of blocks" $
-        sbSize == (nb + ns + nl + ni + nm + nd)
+        specify "sbNblock should be consistent" do
+            sbNblocks `shouldBe` nd
 
-    assertBool "sbNblock was not consistent" $
-        sbNblocks == nd
+        specify "sbNlog should be consistent" do
+            sbNlog `shouldBe` nl
 
-    assertBool "sbNlog was not consistent" $
-        sbNlog == nl
+        specify "sbLogstart should be consistent" do
+            sbLogstart `shouldBe` (nb + ns)
 
-    assertBool "sbLogstart was not consistent" $
-        sbLogstart == (nb + ns)
+        specify "sbInodestart should be consistent" do
+            sbInodestart `shouldBe` (nb + ns + nl)
 
-    assertBool "sbInodestart was not consistent" $
-        sbInodestart == (nb + ns + nl)
-
-    assertBool "sbBmapstart was not consistent" $
-        sbBmapstart == (nb + ns + nl + ni)
+        specify "sbBmapstart should be consistent" do
+            sbBmapstart `shouldBe` (nb + ns + nl + ni)
 
 
-testDinodes :: Image -> Assertion
-testDinodes img = do
-    Superblock{..} <- getSuperblock img
+inodesSpec :: Image -> Spec
+inodesSpec img =
+    describe "inodes" do
+        Superblock{..} <- runIO $ getSuperblock img
 
-    for_ [0 .. sbNinodes - 1] \inum -> do
-        dind <- getNthDinode img inum
-        testNthDinode img inum dind
+        for_ [0 .. sbNinodes - 1] \inum -> do
+            dind <- runIO $ getNthDinode img inum
+            nthInodeSpec img inum dind
 
 
-testNthDinode :: Image -> Word32 -> Dinode -> Assertion
-testNthDinode img inum dind@Dinode{..} =
-    unless (isNullDinode dind) do
-        assertBool
-            (concat
-                [ "inode "
-                , show inum
-                , ": invalid file type "
-                , show diType
-                ])
-            (diType `elem` [_T_DIR, _T_FILE, _T_DEV])
+nthInodeSpec :: Image -> Word32 -> Dinode -> Spec
+nthInodeSpec img inum dind@Dinode{..} =
+    describe ("inode" ++ show inum) do
+        unless (isNullDinode dind) do
+            specify "type should be T_DIR, T_FILE or T_DEV" do
+                diType `shouldSatisfy` (`elem` [_T_DIR, _T_FILE, _T_DEV])
 
-        when (diType == _T_DEV) do
-            assertBool
-                (concat
-                    [ "inode "
-                    , show inum
-                    , ": invalid (major, minor) "
-                    , show (diMajor, diMinor)
-                    ])
-                ((diMajor /= 0) || (diMinor /= 0))
+            when (diType == _T_DEV) do
+                specify "(major, minor) should not be (0, 0)" do
+                    (diMajor, diMinor) `shouldNotBe` (0, 0)
 
-        VS.forM_ diAddrs \addr -> do
-            b <- isBlockUsed img addr
-            assertBool
-                (concat
-                    [ "inode "
-                    , show inum
-                    , ": invalid addr referencing unused block "
-                    , show addr
-                    ])
-                b
+            VS.forM_ diAddrs \addr -> do
+                specify ("addr " ++ show addr ++ " should refer used block") do
+                    isBlockUsed img addr `shouldReturn` True
 
-        when (diType == _T_DIR) do
-            foreachAddrs img diAddrs \addr -> do
-                let ptr = castPtr (img `index` addr) :: Ptr Dirent
+            when (diType == _T_DIR) do
+                foreachAddrs img diAddrs \addr -> do
+                    let ptr = castPtr (img `index` addr) :: Ptr Dirent
 
-                for_ [0 .. fromIntegral _BSIZE `div` 16 - 1] \n -> do
-                    de@Dirent{..} <- peekElemOff ptr n
+                    for_ [0 .. fromIntegral _BSIZE `div` 16 - 1] \n -> do
+                        de@Dirent{..} <- runIO $ peekElemOff ptr n
 
-                    unless (isNullDirent de) do
-                        dind' <- getNthDinode img (fromIntegral deInum)
-                        assertBool
-                            (concat
-                                [ "inode "
-                                , show inum
-                                , ": invalid dirent named "
-                                , showDeName deName
-                                , " referencing unused inode "
-                                , show deInum
-                                ])
-                            (not $ isNullDinode dind')
+                        unless (isNullDirent de) do
+                            dind' <- runIO $ getNthDinode img (fromIntegral deInum)
+                            specify ("dirent named " ++ showDeName deName ++ " should refer used inode") do
+                                dind' `shouldNotSatisfy` isNullDinode

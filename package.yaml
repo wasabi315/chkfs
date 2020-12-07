@@ -16,9 +16,9 @@ dependencies:
   - binary
   - bytestring
   - derive-storable
+  - hspec
+  - hspec-core
   - mmap
-  - tasty
-  - tasty-hunit
   - vector
   - vector-sized
 
