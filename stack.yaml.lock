@@ -3,7 +3,14 @@
 # For more information, please see the documentation at:
 #   https://docs.haskellstack.org/en/stable/lock_files
 
-packages: []
+packages:
+- completed:
+    hackage: derive-storable-0.3.0.0@sha256:819332e8dd666ec88dab17e3aca0cffced197c1a560f5a003789a9372e7f07f1,2299
+    pantry-tree:
+      size: 901
+      sha256: daa96c321b4d81aac6c28d621aaf67681017fe4d277b3b713930e7dd8bfeb53e
+  original:
+    hackage: derive-storable-0.3.0.0
 snapshots:
 - completed:
     size: 532835

@@ -1,25 +1,30 @@
 {-# LANGUAGE BangPatterns    #-}
 {-# LANGUAGE BlockArguments  #-}
-{-# LANGUAGE LambdaCase      #-}
+{-# LANGUAGE DataKinds       #-}
+{-# LANGUAGE DeriveAnyClass  #-}
+{-# LANGUAGE DeriveGeneric   #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE TypeOperators   #-}
 
 module Chkfs where
 
 --------------------------------------------------------------------------------
 
-import           Data.Binary.Get
+import           Control.Monad
+import           Control.Monad.IO.Class
 import           Data.Bits
-import qualified Data.ByteString.Lazy as BL
-import           Data.Char
+import           Data.Foldable
 import           Data.Int
-import qualified Data.Vector          as V
-import qualified Data.Vector.Unboxed  as VU
+import qualified Data.Vector.Storable.Sized as VS
 import           Data.Word
-import           Numeric
-import           System.Exit
-import           Test.Tasty
-import           Test.Tasty.HUnit
-import           Test.Tasty.Runners
+import           Foreign.Ptr
+import           Foreign.Storable
+import           Foreign.Storable.Generic
+import           GHC.Generics
+import           GHC.TypeLits
+import           Test.Hspec
+import           Test.Hspec.Core.Runner
+import           Test.Hspec.Core.Spec
 
 --------------------------------------------------------------------------------
 
@@ -34,64 +39,17 @@ _FSMAGIC = 0x10203040
 _IPB :: Word32
 _IPB = 16
 
+--------------------------------------------------------------------------------
 
-_NDIRECT :: Word32
-_NDIRECT = 12
+type Image = Ptr ()
+
+
+index :: Integral a => Image -> a -> Ptr ()
+index img n = img `plusPtr` (fromIntegral n * fromIntegral _BSIZE)
 
 --------------------------------------------------------------------------------
 
-parseImage :: String -> Word32 -> BL.ByteString -> Either String Image
-parseImage imgName imgSize imgData =
-    case runGetOrFail (getImage imgName imgSize) imgData of
-        Right (_, _, img) -> Right img
-        Left (_, _, err)  -> Left err
-
---------------------------------------------------------------------------------
-
-data Image = Image
-    { imgName    :: !String
-    , imgSize    :: {-# UNPACK #-} !Word32
-    , imgSb      :: !SuperBlock
-    , imgDinodes :: !(V.Vector Dinode)
-    , imgBitmap  :: !Bitmap
-    }
-    deriving (Show)
-
-
-getImage :: String -> Word32 -> Get Image
-getImage imgName imgSize = do
-    -- boot block
-    skip (fromIntegral _BSIZE)
-
-    -- super block
-    imgSb@SuperBlock{..} <- getSuperBlock
-    roundUp _BSIZE
-
-    -- log blocks
-    skip (fromIntegral $ _BSIZE * sbNlog)
-
-    -- inode blocks
-    imgDinodes <- getDinodes sbNinodes
-    skip 1 -- for when ninodes is divisible by IPB
-    roundUp _BSIZE
-
-    -- bitmap blocks
-    imgBitmap <- getBitmap sbSize
-    skip 1 -- for when size is divisible by BSIZE*8
-    roundUp _BSIZE
-
-    pure Image{..}
-
-
-roundUp :: Integral a => a -> Get ()
-roundUp n = do
-    m <- bytesRead
-    let n' = fromIntegral n
-    skip $ fromIntegral (n' - m `mod` n')
-
---------------------------------------------------------------------------------
-
-data SuperBlock = SuperBlock
+data Superblock = Superblock
     { sbMagic      :: {-# UNPACK #-} !Word32
     , sbSize       :: {-# UNPACK #-} !Word32
     , sbNblocks    :: {-# UNPACK #-} !Word32
@@ -101,143 +59,190 @@ data SuperBlock = SuperBlock
     , sbInodestart :: {-# UNPACK #-} !Word32
     , sbBmapstart  :: {-# UNPACK #-} !Word32
     }
-    deriving (Show)
+    deriving (Show, Generic, GStorable)
 
 
-getSuperBlock :: Get SuperBlock
-getSuperBlock =
-    SuperBlock
-        <$> getWord32host
-        <*> getWord32host
-        <*> getWord32host
-        <*> getWord32host
-        <*> getWord32host
-        <*> getWord32host
-        <*> getWord32host
-        <*> getWord32host
+getSuperblock :: Image -> IO Superblock
+getSuperblock img = peek (castPtr (img `index` 1) :: Ptr Superblock)
 
 --------------------------------------------------------------------------------
 
-getDinodes :: Word32 -> Get (V.Vector Dinode)
-getDinodes ninodes =
-    V.generateM (fromIntegral ninodes) (getDinode . fromIntegral)
+isBlockUsed :: Image -> Word32 -> IO Bool
+isBlockUsed img bnum = do
+    Superblock{..} <- getSuperblock img
+
+    let !ptr = castPtr (img `index` sbBmapstart) :: Ptr Word8
+
+    w <- peekElemOff ptr (fromIntegral bnum `div` 8)
+    pure $! testBit w (fromIntegral bnum `mod` 8)
+
+--------------------------------------------------------------------------------
+
+type NDIRECT = 12
 
 
-data FileType
-    = Unknown
-    | Dir
-    | File
-    | Dev
-    deriving (Eq, Show)
+_T_DIR, _T_FILE, _T_DEV :: Int16
+_T_DIR  = 1
+_T_FILE = 2
+_T_DEV  = 3
 
 
 data Dinode = Dinode
-    { dinInum  :: {-# UNPACK #-} !Word32
-    , dinType  :: !FileType
-    , dinMajor :: {-# UNPACK #-} !Int16
-    , dinMinor :: {-# UNPACK #-} !Int16
-    , dinNlink :: {-# UNPACK #-} !Int16
-    , dinSize  :: {-# UNPACK #-} !Word32
-    , dinAddrs :: !(VU.Vector Word32)
+    { diType  :: {-# UNPACK #-} !Int16
+    , diMajor :: {-# UNPACK #-} !Int16
+    , diMinor :: {-# UNPACK #-} !Int16
+    , diNlink :: {-# UNPACK #-} !Int16
+    , diSize  :: {-# UNPACK #-} !Word32
+    , diAddrs :: !(VS.Vector (NDIRECT + 1) Word32)
     }
-    deriving (Show)
+    deriving (Show, Generic, GStorable)
 
 
-getDinode :: Word32 -> Get Dinode
-getDinode dinInum = do
-    Dinode dinInum
-        <$> fmap toFileType getInt16host
-        <*> getInt16host
-        <*> getInt16host
-        <*> getInt16host
-        <*> getWord32host
-        <*> VU.replicateM (fromIntegral $ _NDIRECT + 1) getWord32host
-
-    where
-        toFileType :: Int16 -> FileType
-        toFileType = \case
-            1 -> Dir
-            2 -> File
-            3 -> Dev
-            _ -> Unknown
-
---------------------------------------------------------------------------------
-
-newtype Bitmap = Bitmap Integer
-
-
-instance Show Bitmap where
-    show (Bitmap bm) = showIntAtBase 2 intToDigit bm ""
-
-
-getBitmap :: Word32 -> Get Bitmap
-getBitmap size = go 0 0
-    where
-        nbytes :: Int
-        nbytes = fromIntegral $ (size + 8 - 1) `div` 8 -- ceil(size / 8)
-
-        go :: Int -> Integer -> Get Bitmap
-        go !n !bm
-            | n >= nbytes = pure (Bitmap bm)
-            | otherwise = do
-                w <- getWord8
-                go (n + 1) (bm .|. shiftL (fromIntegral w) (n * 8))
-
-
-isBlockUsed :: Bitmap -> Word32 -> Bool
-isBlockUsed (Bitmap bm) b = testBit bm (fromIntegral b)
-
---------------------------------------------------------------------------------
-
-runTest :: TestTree -> IO ()
-runTest testTree = do
-    installSignalHandlers
-
-    sequence (tryIngredients defaultIngredients mempty testTree) >>= \case
-        Just True -> do
-            exitSuccess
-
-        _ -> do
-            exitFailure
-
---------------------------------------------------------------------------------
-
-tests :: Image -> TestTree
-tests img@Image{..} =
-    testGroup imgName
-        [ testsSb img
+isNullDinode :: Dinode -> Bool
+isNullDinode Dinode{..} =
+    and
+        [ diType == 0
+        , diMajor == 0
+        , diMinor == 0
+        , diSize == 0
+        , VS.all (== 0) diAddrs
         ]
 
 
-testsSb :: Image -> TestTree
-testsSb Image{ imgSb = SuperBlock{..}, .. } =
-    testGroup "super block"
-        [ testCase "sbMagic should be _FSMAGIC" $
-            sbMagic @?= _FSMAGIC
+getNthDinode :: Image -> Word32 -> IO Dinode
+getNthDinode img n = do
+    Superblock{..} <- getSuperblock img
+    let !ptr = castPtr (img `index` sbInodestart) :: Ptr Dinode
+    peekElemOff ptr (fromIntegral n)
 
-        , testCase "sbSize should be consistent" do
-            sbSize @?= (imgSize `div` _BSIZE)
-            sbSize @?= (nb + ns + nl + ni + nm + nd)
 
-        , testCase "sbNblock should be consistent" $
-            sbNblocks @?= nd
+foreachAddrs
+    :: MonadIO m
+    => Image
+    -> VS.Vector (NDIRECT + 1) Word32
+    -> (Word32 -> m ())
+    -> m ()
+foreachAddrs img addrs f = do
+    VS.forM_ (VS.init addrs) \addr ->
+        when (addr /= 0) (f addr)
 
-        , testCase "sbNlog should be consistent" $
-            sbNlog @?= (sbInodestart - sbLogstart)
+    -- indirect block
+    let ptr = castPtr (img `index` VS.last addrs) :: Ptr Word32
+    for_ [0 .. fromIntegral _BSIZE `div` 4 - 1] \i -> do
+        addr <- liftIO $ peekByteOff ptr i
+        when (addr /= 0) (f addr)
 
-        , testCase "sbLogstart should be 2" $
-            sbLogstart @?= 2
+--------------------------------------------------------------------------------
 
-        , testCase "sbInodestart should be sbLogstart + sbNlog" $
-            sbInodestart @?= (sbLogstart + sbNlog)
+type DIRSIZ = 14
 
-        , testCase "sbBmapstart should be sbInodestart + ni" $
-            sbBmapstart @?= (sbInodestart + ni)
-        ]
-    where
-        nb = 1
-        ns = 1
-        nl = sbNlog
-        ni = sbNinodes `div` _IPB + 1
-        nm = sbSize `div` (_BSIZE * 8) + 1
-        nd = sbSize - (nb + ns + nl + ni + nm)
+
+data Dirent = Dirent
+    { deInum :: {-# UNPACK #-} !Word16
+    , deName :: !(VS.Vector DIRSIZ Word8)
+    }
+    deriving (Generic, GStorable)
+
+
+instance Show Dirent where
+    show Dirent{..} =
+        concat
+            [ "Dirent { deInum = "
+            , show deInum
+            , ", deName = "
+            , showDeName deName
+            , " }"
+            ]
+
+
+showDeName :: VS.Vector DIRSIZ Word8 -> String
+showDeName = map (toEnum . fromIntegral) . filter (/= 0) . VS.toList
+
+
+isNullDirent :: Dirent -> Bool
+isNullDirent Dirent{..} = (deInum == 0) && VS.all (== 0) deName
+
+--------------------------------------------------------------------------------
+
+-- Orphan instance
+instance MonadIO (SpecM a) where
+    liftIO = runIO
+
+--------------------------------------------------------------------------------
+
+doCheck :: Spec -> IO ()
+doCheck spec = runSpec spec defaultConfig >>= evaluateSummary
+
+--------------------------------------------------------------------------------
+
+superblockSpec :: Image -> Spec
+superblockSpec img =
+    describe "superblock" do
+        Superblock{..} <- runIO $ getSuperblock img
+
+        let nb = 1
+            ns = 1
+            nl = sbNlog
+            ni = sbNinodes `div` _IPB + 1
+            nm = sbSize `div` (_BSIZE * 8) + 1
+            nd = sbSize - (nb + ns + nl + ni + nm)
+
+        specify "sbMagic should be FSMAGIC" do
+            sbMagic `shouldBe` _FSMAGIC
+
+        specify "sbSize was not total count of blocks" do
+            sbSize `shouldBe` (nb + ns + nl + ni + nm + nd)
+
+        specify "sbNblock should be consistent" do
+            sbNblocks `shouldBe` nd
+
+        specify "sbNlog should be consistent" do
+            sbNlog `shouldBe` nl
+
+        specify "sbLogstart should be consistent" do
+            sbLogstart `shouldBe` (nb + ns)
+
+        specify "sbInodestart should be consistent" do
+            sbInodestart `shouldBe` (nb + ns + nl)
+
+        specify "sbBmapstart should be consistent" do
+            sbBmapstart `shouldBe` (nb + ns + nl + ni)
+
+
+inodesSpec :: Image -> Spec
+inodesSpec img =
+    describe "inodes" do
+        Superblock{..} <- runIO $ getSuperblock img
+
+        for_ [0 .. sbNinodes - 1] \inum -> do
+            dind <- runIO $ getNthDinode img inum
+            nthInodeSpec img inum dind
+
+
+nthInodeSpec :: Image -> Word32 -> Dinode -> Spec
+nthInodeSpec img inum dind@Dinode{..} =
+    describe ("inode " ++ show inum) do
+        unless (isNullDinode dind) do
+            specify "type should be T_DIR, T_FILE or T_DEV" do
+                diType `shouldSatisfy` (`elem` [_T_DIR, _T_FILE, _T_DEV])
+
+            when (diType == _T_DEV) do
+                specify "(major, minor) should not be (0, 0)" do
+                    (diMajor, diMinor) `shouldNotBe` (0, 0)
+
+            VS.forM_ diAddrs \addr -> do
+                when (addr /= 0) do
+                    specify ("addr " ++ show addr ++ " should refer used block") do
+                        isBlockUsed img addr `shouldReturn` True
+
+            when (diType == _T_DIR) do
+                foreachAddrs img diAddrs \addr -> do
+                    let ptr = castPtr (img `index` addr) :: Ptr Dirent
+
+                    for_ [0 .. fromIntegral _BSIZE `div` 16 - 1] \n -> do
+                        de@Dirent{..} <- runIO $ peekElemOff ptr n
+
+                        unless (isNullDirent de) do
+                            dind' <- runIO $ getNthDinode img (fromIntegral deInum)
+                            specify ("dirent named " ++ showDeName deName ++ " should refer used inode") do
+                                dind' `shouldNotSatisfy` isNullDinode

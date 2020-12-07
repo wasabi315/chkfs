@@ -15,9 +15,12 @@ dependencies:
   - base >= 4.7 && < 5
   - binary
   - bytestring
-  - tasty
-  - tasty-hunit
+  - derive-storable
+  - hspec
+  - hspec-core
+  - mmap
   - vector
+  - vector-sized
 
 library:
   source-dirs: src
