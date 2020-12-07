@@ -13,7 +13,6 @@ module Chkfs where
 import           Control.Monad
 import           Control.Monad.IO.Class
 import           Data.Bits
-import           Data.ByteString.Internal   (w2c)
 import           Data.Foldable
 import           Data.Int
 import qualified Data.Vector.Storable.Sized as VS
@@ -157,7 +156,7 @@ instance Show Dirent where
 
 
 showDeName :: VS.Vector DIRSIZ Word8 -> String
-showDeName = map w2c . filter (/= 0) . VS.toList
+showDeName = map (toEnum . fromIntegral) . filter (/= 0) . VS.toList
 
 
 isNullDirent :: Dirent -> Bool
