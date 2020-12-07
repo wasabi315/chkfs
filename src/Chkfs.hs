@@ -14,7 +14,6 @@ import           Control.Monad
 import           Control.Monad.IO.Class
 import           Data.Bits
 import           Data.ByteString.Internal   (w2c)
-import           Data.Char
 import           Data.Foldable
 import           Data.Int
 import qualified Data.Vector.Storable.Sized as VS
@@ -24,7 +23,6 @@ import           Foreign.Storable
 import           Foreign.Storable.Generic
 import           GHC.Generics
 import           GHC.TypeLits
-import           Numeric
 import           Test.Hspec
 import           Test.Hspec.Core.Runner
 import           Test.Hspec.Core.Spec
@@ -69,13 +67,6 @@ getSuperblock :: Image -> IO Superblock
 getSuperblock img = peek (castPtr (img `index` 1) :: Ptr Superblock)
 
 --------------------------------------------------------------------------------
-
-newtype Bitmap = Bitmap Integer
-
-
-instance Show Bitmap where
-    show (Bitmap bm) = showIntAtBase 2 intToDigit bm ""
-
 
 isBlockUsed :: Image -> Word32 -> IO Bool
 isBlockUsed img bnum = do
@@ -166,7 +157,7 @@ instance Show Dirent where
 
 
 showDeName :: VS.Vector DIRSIZ Word8 -> String
-showDeName = map w2c . VS.toList
+showDeName = map w2c . filter (/= 0) . VS.toList
 
 
 isNullDirent :: Dirent -> Bool
@@ -231,7 +222,7 @@ inodesSpec img =
 
 nthInodeSpec :: Image -> Word32 -> Dinode -> Spec
 nthInodeSpec img inum dind@Dinode{..} =
-    describe ("inode" ++ show inum) do
+    describe ("inode " ++ show inum) do
         unless (isNullDinode dind) do
             specify "type should be T_DIR, T_FILE or T_DEV" do
                 diType `shouldSatisfy` (`elem` [_T_DIR, _T_FILE, _T_DEV])
@@ -241,8 +232,9 @@ nthInodeSpec img inum dind@Dinode{..} =
                     (diMajor, diMinor) `shouldNotBe` (0, 0)
 
             VS.forM_ diAddrs \addr -> do
-                specify ("addr " ++ show addr ++ " should refer used block") do
-                    isBlockUsed img addr `shouldReturn` True
+                when (addr /= 0) do
+                    specify ("addr " ++ show addr ++ " should refer used block") do
+                        isBlockUsed img addr `shouldReturn` True
 
             when (diType == _T_DIR) do
                 foreachAddrs img diAddrs \addr -> do
