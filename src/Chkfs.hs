@@ -14,6 +14,7 @@ module Chkfs where
 import           Control.Monad
 import           Control.Monad.IO.Class
 import           Data.Bits
+import           Data.Char
 import           Data.Foldable
 import           Data.Int
 import qualified Data.Vector.Storable.Sized   as VS
@@ -23,6 +24,7 @@ import           Foreign.Storable
 import           Foreign.Storable.Generic
 import           GHC.Generics
 import           GHC.TypeLits
+import           Numeric
 import           System.Exit
 import           Test.Tasty
 import           Test.Tasty.HUnit
@@ -70,6 +72,30 @@ getSuperblock :: Image -> IO Superblock
 getSuperblock img = peek (castPtr (img `index` 1) :: Ptr Superblock)
 
 --------------------------------------------------------------------------------
+
+newtype Bitmap = Bitmap Integer
+
+
+instance Show Bitmap where
+    show (Bitmap bm) = showIntAtBase 2 intToDigit bm ""
+
+
+getBitmap :: Image -> IO Bitmap
+getBitmap img = do
+    Superblock{..} <- getSuperblock img
+
+    let !nbytes = fromIntegral $ (sbSize - 1) `div` 8 + 1 -- ceil(sbSize / 8)
+        !ptr = castPtr (img `index` sbBmapstart) :: Ptr Word8
+
+        go :: Int -> Integer -> IO Bitmap
+        go !n !bm
+            | n >= nbytes = pure (Bitmap bm)
+            | otherwise = do
+                w <- peekElemOff ptr n
+                go (n + 1) (bm .|. shiftL (fromIntegral w) (n * 8))
+
+    go 0 0
+
 
 isBlockUsed :: Image -> Word32 -> IO Bool
 isBlockUsed img bnum = do
