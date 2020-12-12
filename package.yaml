@@ -19,6 +19,8 @@ dependencies:
   - hspec
   - hspec-core
   - mmap
+  - tasty
+  - tasty-hunit
   - vector
   - vector-sized
 

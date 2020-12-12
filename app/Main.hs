@@ -22,5 +22,5 @@ main = do
 
     let imgName = head args
     mmapWithFilePtr imgName ReadOnly Nothing \(img, _) -> do
-        doCheck (superblockSpec img)
-        doCheck (inodesSpec img)
+        sb <- getSuperblock img
+        runTest (superblockTT sb)

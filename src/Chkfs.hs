@@ -3,6 +3,7 @@
 {-# LANGUAGE DataKinds       #-}
 {-# LANGUAGE DeriveAnyClass  #-}
 {-# LANGUAGE DeriveGeneric   #-}
+{-# LANGUAGE LambdaCase      #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TypeOperators   #-}
 
@@ -15,16 +16,19 @@ import           Control.Monad.IO.Class
 import           Data.Bits
 import           Data.Foldable
 import           Data.Int
-import qualified Data.Vector.Storable.Sized as VS
+import qualified Data.Vector.Storable.Sized   as VS
 import           Data.Word
 import           Foreign.Ptr
 import           Foreign.Storable
 import           Foreign.Storable.Generic
 import           GHC.Generics
 import           GHC.TypeLits
-import           Test.Hspec
-import           Test.Hspec.Core.Runner
-import           Test.Hspec.Core.Spec
+import           System.Exit
+import           Test.Tasty
+import           Test.Tasty.HUnit
+import           Test.Tasty.Ingredients.Basic
+import           Test.Tasty.Options
+import           Test.Tasty.Runners
 
 --------------------------------------------------------------------------------
 
@@ -164,85 +168,52 @@ isNullDirent Dirent{..} = (deInum == 0) && VS.all (== 0) deName
 
 --------------------------------------------------------------------------------
 
--- Orphan instance
-instance MonadIO (SpecM a) where
-    liftIO = runIO
+runTest :: TestTree -> IO ()
+runTest tt = do
+    installSignalHandlers
+
+    sequence (tryIngredients ingredients options tt) >>= \case
+        Just True ->
+            exitSuccess
+
+        _ ->
+            exitFailure
+
+    where
+        ingredients = defaultIngredients
+        options = singleOption (HideSuccesses True)
 
 --------------------------------------------------------------------------------
 
-doCheck :: Spec -> IO ()
-doCheck spec = runSpec spec defaultConfig >>= evaluateSummary
+superblockTT :: Superblock -> TestTree
+superblockTT Superblock{..} =
+    testGroup "superblock"
+        [ testCase "sbMagic should be _FSMAGIC" do
+            sbMagic @?= _FSMAGIC
 
---------------------------------------------------------------------------------
+        , testCase "sbSize should be total count of blocks" do
+            sbSize @?= (nb + ns + nl + ni + nm + nd)
 
-superblockSpec :: Image -> Spec
-superblockSpec img =
-    describe "superblock" do
-        Superblock{..} <- runIO $ getSuperblock img
+        , testCase "sbNblock should be consistent" do
+            sbNblocks @?= nd
 
-        let nb = 1
-            ns = 1
-            nl = sbNlog
-            ni = sbNinodes `div` _IPB + 1
-            nm = sbSize `div` (_BSIZE * 8) + 1
-            nd = sbSize - (nb + ns + nl + ni + nm)
+        , testCase "sbNlog should be consistent" do
+            sbNlog @?= nl
 
-        specify "sbMagic should be FSMAGIC" do
-            sbMagic `shouldBe` _FSMAGIC
+        , testCase "sbLogstart should be consistent" do
+            sbLogstart @?= (nb + ns)
 
-        specify "sbSize was not total count of blocks" do
-            sbSize `shouldBe` (nb + ns + nl + ni + nm + nd)
+        , testCase "sbInodestart should be consistent" do
+            sbInodestart @?= (nb + ns + nl)
 
-        specify "sbNblock should be consistent" do
-            sbNblocks `shouldBe` nd
+        , testCase "sbBmapstart should be consistent" do
+            sbBmapstart @?= (nb + ns + nl + ni)
+        ]
 
-        specify "sbNlog should be consistent" do
-            sbNlog `shouldBe` nl
-
-        specify "sbLogstart should be consistent" do
-            sbLogstart `shouldBe` (nb + ns)
-
-        specify "sbInodestart should be consistent" do
-            sbInodestart `shouldBe` (nb + ns + nl)
-
-        specify "sbBmapstart should be consistent" do
-            sbBmapstart `shouldBe` (nb + ns + nl + ni)
-
-
-inodesSpec :: Image -> Spec
-inodesSpec img =
-    describe "inodes" do
-        Superblock{..} <- runIO $ getSuperblock img
-
-        for_ [0 .. sbNinodes - 1] \inum -> do
-            dind <- runIO $ getNthDinode img inum
-            nthInodeSpec img inum dind
-
-
-nthInodeSpec :: Image -> Word32 -> Dinode -> Spec
-nthInodeSpec img inum dind@Dinode{..} =
-    describe ("inode " ++ show inum) do
-        unless (isNullDinode dind) do
-            specify "type should be T_DIR, T_FILE or T_DEV" do
-                diType `shouldSatisfy` (`elem` [_T_DIR, _T_FILE, _T_DEV])
-
-            when (diType == _T_DEV) do
-                specify "(major, minor) should not be (0, 0)" do
-                    (diMajor, diMinor) `shouldNotBe` (0, 0)
-
-            VS.forM_ diAddrs \addr -> do
-                when (addr /= 0) do
-                    specify ("addr " ++ show addr ++ " should refer used block") do
-                        isBlockUsed img addr `shouldReturn` True
-
-            when (diType == _T_DIR) do
-                foreachAddrs img diAddrs \addr -> do
-                    let ptr = castPtr (img `index` addr) :: Ptr Dirent
-
-                    for_ [0 .. fromIntegral _BSIZE `div` 16 - 1] \n -> do
-                        de@Dirent{..} <- runIO $ peekElemOff ptr n
-
-                        unless (isNullDirent de) do
-                            dind' <- runIO $ getNthDinode img (fromIntegral deInum)
-                            specify ("dirent named " ++ showDeName deName ++ " should refer used inode") do
-                                dind' `shouldNotSatisfy` isNullDinode
+    where
+        nb = 1
+        ns = 1
+        nl = sbNlog
+        ni = sbNinodes `div` _IPB + 1
+        nm = sbSize `div` (_BSIZE * 8) + 1
+        nd = sbSize - (nb + ns + nl + ni + nm)
