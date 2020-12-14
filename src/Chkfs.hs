@@ -214,16 +214,17 @@ superblockSpec Superblock{..} =
 inodesSpec :: Image -> Superblock -> Spec
 inodesSpec img Superblock{..} =
     describe "inode" do
-        root <- runIO $ getInode img _ROOTINO
-        go (_ROOTINO, root) (_ROOTINO, root)
+        go _ROOTINO _ROOTINO
 
     where
         dot, dotdot :: VS.Vector DIRSIZ Word8
         dot = VS.fromTuple (46, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
         dotdot = VS.fromTuple (46, 46, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
 
-        go :: (Word32, Dinode) -> (Word32, Dinode) -> Spec
-        go (pino, pind) (ino, ind) = do
+        go :: Word32 -> Word32 -> Spec
+        go pino ino = do
+            ind <- runIO $ getInode img ino
+
             specify ("inode " ++ show ino ++ " should be used") do
                 ind `shouldNotSatisfy` isNullInode
 
@@ -250,17 +251,12 @@ inodesSpec img Superblock{..} =
                             let !ino' = fromIntegral deInum :: Word32
 
                             when (deName == dot) do
-                                specify ". should refer self" do
+                                specify ". should refer current directory" do
                                     ino' `shouldBe` ino
 
-                            when (deName == dotdot && ino' == _ROOTINO) do
-                                specify "parent of / is /" do
-                                    ino' `shouldBe` ino
-
-                            when (deName == dotdot && ino' /= _ROOTINO) do
-                                specify "inode number of parent should be correct" do
+                            when (deName == dotdot) do
+                                specify ".. should refer parent directory" do
                                     ino' `shouldBe` pino
 
                             when (ino' /= pino && ino' /= ino) do
-                                ind' <- runIO $ getInode img ino'
-                                go (ino, ind) (ino', ind')
+                                go ino ino'
