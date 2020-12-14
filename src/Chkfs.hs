@@ -87,6 +87,10 @@ _T_FILE = 2
 _T_DEV  = 3
 
 
+_ROOTINO :: Word32
+_ROOTINO = 1
+
+
 data Dinode = Dinode
     { diType  :: {-# UNPACK #-} !Int16
     , diMajor :: {-# UNPACK #-} !Int16
@@ -175,11 +179,9 @@ doCheck spec = runSpec spec defaultConfig >>= evaluateSummary
 
 --------------------------------------------------------------------------------
 
-superblockSpec :: Image -> Spec
-superblockSpec img =
+superblockSpec :: Superblock -> Spec
+superblockSpec Superblock{..} =
     describe "superblock" do
-        Superblock{..} <- runIO $ getSuperblock img
-
         let nb = 1
             ns = 1
             nl = sbNlog
@@ -209,40 +211,56 @@ superblockSpec img =
             sbBmapstart `shouldBe` (nb + ns + nl + ni)
 
 
-inodesSpec :: Image -> Spec
-inodesSpec img =
-    describe "inodes" do
-        Superblock{..} <- runIO $ getSuperblock img
+inodesSpec :: Image -> Superblock -> Spec
+inodesSpec img Superblock{..} =
+    describe "inode" do
+        root <- runIO $ getInode img _ROOTINO
+        go (_ROOTINO, root) (_ROOTINO, root)
 
-        for_ [0 .. sbNinodes - 1] \ino -> do
-            ind <- runIO $ getInode img ino
-            nthInodeSpec img ino ind
+    where
+        dot, dotdot :: VS.Vector DIRSIZ Word8
+        dot = VS.fromTuple (46, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+        dotdot = VS.fromTuple (46, 46, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
 
+        go :: (Word32, Dinode) -> (Word32, Dinode) -> Spec
+        go (pino, pind) (ino, ind) = do
+            specify ("inode " ++ show ino ++ " should be used") do
+                ind `shouldNotSatisfy` isNullInode
 
-nthInodeSpec :: Image -> Word32 -> Dinode -> Spec
-nthInodeSpec img ino ind@Dinode{..} =
-    describe ("inode " ++ show ino) do
-        unless (isNullInode ind) do
             specify "type should be T_DIR, T_FILE or T_DEV" do
-                diType `shouldSatisfy` (`elem` [_T_DIR, _T_FILE, _T_DEV])
+                diType ind `shouldSatisfy` (`elem` [_T_DIR, _T_FILE, _T_DEV])
 
-            when (diType == _T_DEV) do
+            when (diType ind == _T_DEV) do
                 specify "(major, minor) should not be (0, 0)" do
-                    (diMajor, diMinor) `shouldNotBe` (0, 0)
+                    (diMajor ind, diMinor ind) `shouldNotBe` (0, 0)
 
-            VS.forM_ diAddrs \addr -> do
+            VS.forM_ (diAddrs ind) \addr -> do
                 when (addr /= 0) do
                     specify ("addr " ++ show addr ++ " should refer used block") do
                         isBlockUsed img addr `shouldReturn` True
 
-            when (diType == _T_DIR) do
-                foreachAddrs img diAddrs \addr -> do
-                    let ptr = castPtr (img `index` addr) :: Ptr Dirent
+            when (diType ind == _T_DIR) do
+                foreachAddrs img (diAddrs ind) \addr -> do
+                    let !ptr = castPtr (img `index` addr) :: Ptr Dirent
 
                     for_ [0 .. fromIntegral _BSIZE `div` 16 - 1] \n -> do
                         de@Dirent{..} <- runIO $ peekElemOff ptr n
 
                         unless (isNullDirent de) do
-                            ind' <- runIO $ getInode img (fromIntegral deInum)
-                            specify ("dirent named " ++ showDeName deName ++ " should refer used inode") do
-                                ind' `shouldNotSatisfy` isNullInode
+                            let !ino' = fromIntegral deInum :: Word32
+
+                            when (deName == dot) do
+                                specify ". should refer self" do
+                                    ino' `shouldBe` ino
+
+                            when (deName == dotdot && ino' == _ROOTINO) do
+                                specify "parent of / is /" do
+                                    ino' `shouldBe` ino
+
+                            when (deName == dotdot && ino' /= _ROOTINO) do
+                                specify "inode number of parent should be correct" do
+                                    ino' `shouldBe` pino
+
+                            when (ino' /= pino && ino' /= ino) do
+                                ind' <- runIO $ getInode img ino'
+                                go (ino, ind) (ino', ind')
