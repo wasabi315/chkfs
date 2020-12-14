@@ -98,8 +98,8 @@ data Dinode = Dinode
     deriving (Show, Generic, GStorable)
 
 
-isNullDinode :: Dinode -> Bool
-isNullDinode Dinode{..} =
+isNullInode :: Dinode -> Bool
+isNullInode Dinode{..} =
     and
         [ diType == 0
         , diMajor == 0
@@ -109,8 +109,8 @@ isNullDinode Dinode{..} =
         ]
 
 
-getNthDinode :: Image -> Word32 -> IO Dinode
-getNthDinode img n = do
+getInode :: Image -> Word32 -> IO Dinode
+getInode img n = do
     Superblock{..} <- getSuperblock img
     let !ptr = castPtr (img `index` sbInodestart) :: Ptr Dinode
     peekElemOff ptr (fromIntegral n)
@@ -214,15 +214,15 @@ inodesSpec img =
     describe "inodes" do
         Superblock{..} <- runIO $ getSuperblock img
 
-        for_ [0 .. sbNinodes - 1] \inum -> do
-            dind <- runIO $ getNthDinode img inum
-            nthInodeSpec img inum dind
+        for_ [0 .. sbNinodes - 1] \ino -> do
+            ind <- runIO $ getInode img ino
+            nthInodeSpec img ino ind
 
 
 nthInodeSpec :: Image -> Word32 -> Dinode -> Spec
-nthInodeSpec img inum dind@Dinode{..} =
-    describe ("inode " ++ show inum) do
-        unless (isNullDinode dind) do
+nthInodeSpec img ino ind@Dinode{..} =
+    describe ("inode " ++ show ino) do
+        unless (isNullInode ind) do
             specify "type should be T_DIR, T_FILE or T_DEV" do
                 diType `shouldSatisfy` (`elem` [_T_DIR, _T_FILE, _T_DEV])
 
@@ -243,6 +243,6 @@ nthInodeSpec img inum dind@Dinode{..} =
                         de@Dirent{..} <- runIO $ peekElemOff ptr n
 
                         unless (isNullDirent de) do
-                            dind' <- runIO $ getNthDinode img (fromIntegral deInum)
+                            ind' <- runIO $ getInode img (fromIntegral deInum)
                             specify ("dirent named " ++ showDeName deName ++ " should refer used inode") do
-                                dind' `shouldNotSatisfy` isNullDinode
+                                ind' `shouldNotSatisfy` isNullInode
