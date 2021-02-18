@@ -1,0 +1,10 @@
+cradle:
+  cabal:
+    - path: "src"
+      component: "lib:chkfs"
+
+    - path: "app/Main.hs"
+      component: "chkfs:exe:chkfs"
+
+    - path: "app/Paths_chkfs.hs"
+      component: "chkfs:exe:chkfs"

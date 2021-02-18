@@ -1,5 +1,0 @@
-packages:
-- .
-extra-deps:
-- derive-storable-0.3.0.0
-resolver: lts-17.2
