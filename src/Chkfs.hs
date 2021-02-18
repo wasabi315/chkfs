@@ -149,14 +149,12 @@ data Dirent = Dirent
 
 
 instance Show Dirent where
-    show Dirent{..} =
-        concat
-            [ "Dirent { deInum = "
-            , show deInum
-            , ", deName = "
-            , showDeName deName
-            , " }"
-            ]
+    showsPrec _ Dirent{..}
+        = showString "Dirent{deInum="
+        . shows deInum
+        . showString ",deName="
+        . shows (showDeName deName)
+        . showChar '}'
 
 
 showDeName :: VS.Vector DIRSIZ Word8 -> String
