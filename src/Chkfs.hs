@@ -3,6 +3,7 @@
 {-# LANGUAGE DataKinds       #-}
 {-# LANGUAGE DeriveAnyClass  #-}
 {-# LANGUAGE DeriveGeneric   #-}
+{-# LANGUAGE LambdaCase      #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TypeOperators   #-}
 
@@ -22,9 +23,22 @@ import           Foreign.Storable
 import           Foreign.Storable.Generic
 import           GHC.Generics
 import           GHC.TypeLits
+import           System.IO.MMap
 import           Test.Hspec
 import           Test.Hspec.Core.Runner
 import           Test.Hspec.Core.Spec
+
+--------------------------------------------------------------------------------
+
+chkfs :: FilePath -> IO Bool
+chkfs imgName = do
+    mmapWithFilePtr imgName ReadOnly Nothing \(img, _) -> do
+        sb <- getSuperblock img
+        doCheck (superblockSpec sb) >>= \case
+            False -> pure False
+            True -> doCheck (inodesSpec img sb) >>= \case
+                False -> pure False
+                True  -> pure True
 
 --------------------------------------------------------------------------------
 
@@ -172,8 +186,8 @@ instance MonadIO (SpecM a) where
 
 --------------------------------------------------------------------------------
 
-doCheck :: Spec -> IO ()
-doCheck spec = runSpec spec defaultConfig >>= evaluateSummary
+doCheck :: Spec -> IO Bool
+doCheck spec = isSuccess <$> runSpec spec defaultConfig
 
 --------------------------------------------------------------------------------
 

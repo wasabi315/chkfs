@@ -6,8 +6,8 @@ module Main where
 
 import           Control.Monad
 import           System.Environment
+import           System.Exit
 import           System.IO
-import           System.IO.MMap
 
 import           Chkfs
 
@@ -18,10 +18,11 @@ main = do
     prog <- getProgName
     args <- getArgs
     when (null args) do
-        hPutStr stderr $ "Usage: " ++ prog ++ " FILE"
+        hPutStrLn stderr $ "Usage: " ++ prog ++ " FILE"
+        exitFailure
 
     let imgName = head args
-    mmapWithFilePtr imgName ReadOnly Nothing \(img, _) -> do
-        sb <- getSuperblock img
-        doCheck (superblockSpec sb)
-        doCheck (inodesSpec img sb)
+    ok <- chkfs imgName
+    if ok
+        then exitSuccess
+        else exitFailure
