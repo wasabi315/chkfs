@@ -1,11 +1,5 @@
 cabal-version: 1.12
 
--- This file has been generated from package.yaml by hpack version 0.33.0.
---
--- see: https://github.com/sol/hpack
---
--- hash: e82b41109c6189141fbe837205edae63185100ce266bb7586686ccfc6e05caeb
-
 name:           chkfs
 version:        0.1.0.0
 category:       Web
@@ -28,8 +22,6 @@ library
       src
   build-depends:
       base >=4.7 && <5
-    , binary
-    , bytestring
     , derive-storable
     , hspec
     , hspec-core
@@ -46,13 +38,5 @@ executable chkfs
       app
   build-depends:
       base >=4.7 && <5
-    , binary
-    , bytestring
     , chkfs
-    , derive-storable
-    , hspec
-    , hspec-core
-    , mmap
-    , vector
-    , vector-sized
   default-language: Haskell2010
