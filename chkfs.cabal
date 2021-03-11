@@ -1,4 +1,4 @@
-cabal-version: 1.12
+cabal-version: 3.4
 
 name:           chkfs
 version:        0.1.0.0
@@ -7,7 +7,7 @@ homepage:       https://github.com/githubuser/chkfs#readme
 author:         Author name here
 maintainer:     example@example.com
 copyright:      2020 Author name here
-license:        BSD3
+license:        BSD-3-Clause
 license-file:   LICENSE
 build-type:     Simple
 extra-source-files:
@@ -22,6 +22,7 @@ library
       src
   build-depends:
       base >=4.7 && <5
+    , relude
     , derive-storable
     , hspec
     , hspec-core
@@ -29,6 +30,11 @@ library
     , vector
     , vector-sized
   default-language: Haskell2010
+  ghc-options: -O1 -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wpartial-fields -Wredundant-constraints
+  default-extensions: OverloadedStrings
+  mixins:
+      base hiding (Prelude)
+    , relude (Relude as Prelude)
 
 executable chkfs
   main-is: Main.hs
@@ -38,5 +44,11 @@ executable chkfs
       app
   build-depends:
       base >=4.7 && <5
+    , relude
     , chkfs
   default-language: Haskell2010
+  ghc-options: -O1 -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wpartial-fields -Wredundant-constraints
+  default-extensions: OverloadedStrings
+  mixins:
+      base hiding (Prelude)
+    , relude (Relude as Prelude)

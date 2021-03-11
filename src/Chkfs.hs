@@ -13,23 +13,18 @@ module Chkfs where
 
 --------------------------------------------------------------------------------
 
-import Control.Monad
-import Control.Monad.IO.Class
 import Data.Bits
-import Data.Foldable
-import Data.Int
 import Data.Vector.Storable.Sized qualified as VS
-import Data.Word
 import Foreign.C.Types
 import Foreign.Ptr
 import Foreign.Storable
 import Foreign.Storable.Generic
-import GHC.Generics
 import GHC.TypeLits
 import System.IO.MMap
 import Test.Hspec
 import Test.Hspec.Core.Runner
 import Test.Hspec.Core.Spec
+import Text.Show qualified
 
 --------------------------------------------------------------------------------
 
@@ -77,16 +72,13 @@ data Superblock = Superblock
   deriving (Show, Generic, GStorable)
 
 getSuperblock :: Image -> IO Superblock
-getSuperblock img = peek (castPtr (img `index` 1) :: Ptr Superblock)
+getSuperblock img = peek (castPtr (img `index` (1 :: Int)) :: Ptr Superblock)
 
 --------------------------------------------------------------------------------
 
-isBlockUsed :: Image -> CUInt -> IO Bool
-isBlockUsed img bnum = do
-  Superblock {..} <- getSuperblock img
-
+isBlockUsed :: Image -> Superblock -> CUInt -> IO Bool
+isBlockUsed img Superblock {..} bnum = do
   let !ptr = castPtr (img `index` sbBmapstart) :: Ptr Word8
-
   w <- peekElemOff ptr (fromIntegral bnum `div` 8)
   pure $! testBit w (fromIntegral bnum `mod` 8)
 
@@ -122,9 +114,8 @@ isNullInode Dinode {..} =
       VS.all (== 0) diAddrs
     ]
 
-getInode :: Image -> CUInt -> IO Dinode
-getInode img n = do
-  Superblock {..} <- getSuperblock img
+getInode :: Image -> Superblock -> CUInt -> IO Dinode
+getInode img Superblock {..} n = do
   let !ptr = castPtr (img `index` sbInodestart) :: Ptr Dinode
   peekElemOff ptr (fromIntegral n)
 
@@ -156,11 +147,11 @@ data Dirent = Dirent
 
 instance Show Dirent where
   showsPrec _ Dirent {..} =
-    showString "Dirent{deInum="
-      . shows deInum
-      . showString ",deName="
-      . shows (showDeName deName)
-      . showChar '}'
+    Text.Show.showString "Dirent{deInum="
+      . Text.Show.shows deInum
+      . Text.Show.showString ",deName="
+      . Text.Show.shows (showDeName deName)
+      . Text.Show.showChar '}'
 
 showDeName :: VS.Vector DIRSIZ CChar -> String
 showDeName = map (toEnum . fromIntegral) . filter (/= 0) . VS.toList
@@ -213,7 +204,7 @@ superblockSpec Superblock {..} =
       sbBmapstart `shouldBe` (nb + ns + nl + ni)
 
 inodesSpec :: Image -> Superblock -> Spec
-inodesSpec img Superblock {..} =
+inodesSpec img sb =
   describe "inode" do
     go _ROOTINO _ROOTINO
   where
@@ -223,7 +214,7 @@ inodesSpec img Superblock {..} =
 
     go :: CUInt -> CUInt -> Spec
     go pino ino = do
-      ind <- runIO $ getInode img ino
+      ind <- runIO $ getInode img sb ino
 
       specify ("inode " ++ show ino ++ " should be used") do
         ind `shouldNotSatisfy` isNullInode
@@ -238,7 +229,7 @@ inodesSpec img Superblock {..} =
       VS.forM_ (diAddrs ind) \addr -> do
         when (addr /= 0) do
           specify ("addr " ++ show addr ++ " should refer used block") do
-            isBlockUsed img addr `shouldReturn` True
+            isBlockUsed img sb addr `shouldReturn` True
 
       when (diType ind == _T_DIR) do
         foreachAddrs img (diAddrs ind) \addr -> do
