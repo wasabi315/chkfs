@@ -13,12 +13,17 @@ module Chkfs where
 
 --------------------------------------------------------------------------------
 
+import Control.Monad
+import Control.Monad.IO.Class
 import Data.Bits
+import Data.Foldable
 import Data.Vector.Storable.Sized qualified as VS
+import Data.Word
 import Foreign.C.Types
 import Foreign.Ptr
 import Foreign.Storable
 import Foreign.Storable.Generic
+import GHC.Generics
 import GHC.TypeLits
 import System.IO.MMap
 import Test.Hspec

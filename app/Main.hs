@@ -5,7 +5,9 @@ module Main where
 --------------------------------------------------------------------------------
 
 import Chkfs
+import Data.Bool
 import System.Environment
+import System.Exit
 import System.IO
 
 --------------------------------------------------------------------------------
